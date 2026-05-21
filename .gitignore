@@ -1,0 +1,25 @@
+# 虛擬環境
+.venv/
+__pycache__/
+*.pyc
+
+# 環境變數與敏感金鑰
+.env
+
+# 本地資料庫與快取
+vectorstore/
+.chroma/
+
+# 上傳的 PDF 論文
+data/
+
+# OS 系統快取
+.DS_Store
+Thumbs.db
+
+.vscode/
+nlp_final_project.code-workspace
+
+# 測試快取與日誌
+.pytest_cache/
+*.log
