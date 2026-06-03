@@ -105,6 +105,46 @@ class AcademicVectorManager:
             logger.error(f"語意檢索過程中發生異常: {e}")
             raise e
 
+    def delete_by_source(self, source_name: str) -> None:
+        """
+        刪除指定來源（例如某個 PDF 檔名）的所有向量資料切塊。
+        
+        Args:
+            source_name (str): PDF 檔案名稱
+        """
+        logger.info(f"正在從向量庫中刪除來源為 `{source_name}` 的向量資料...")
+        try:
+            # ChromaDB 內建 collection 支援 where 條件刪除
+            self.vector_db._collection.delete(where={"source": source_name})
+            logger.info(f"成功刪除 `{source_name}` 的向量資料。")
+        except Exception as e:
+            logger.error(f"刪除 `{source_name}` 向量時發生錯誤: {e}")
+            raise e
+
+    def get_unique_sources(self) -> List[str]:
+        """
+        獲取向量庫中所有不重複的文獻來源（PDF 檔名）。
+        
+        Returns:
+            List[str]: 不重複的 PDF 檔名清單
+        """
+        try:
+            # 從 metadata 中獲取所有 source 欄位
+            # ChromaDB python client _collection.get() 可以指定 include=['metadatas']
+            results = self.vector_db._collection.get(include=['metadatas'])
+            metadatas = results.get('metadatas', [])
+            if not metadatas:
+                return []
+            
+            sources = set()
+            for meta in metadatas:
+                if meta and 'source' in meta:
+                    sources.add(meta['source'])
+            return list(sources)
+        except Exception as e:
+            logger.error(f"獲取向量庫來源清單失敗: {e}")
+            return []
+
     def get_collection_count(self) -> int:
         """
         查詢當前向量庫中的資料總筆數。

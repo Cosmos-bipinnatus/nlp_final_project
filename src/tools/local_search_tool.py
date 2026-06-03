@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from src.rag.vector_manager import AcademicVectorManager
 from src.rag.generator import AcademicRAGGenerator
 
@@ -31,12 +31,13 @@ class LocalSearchTool:
             logger.error(f"本地文獻檢索工具初始化失敗: {e}")
             raise e
 
-    def run(self, query: str) -> Dict[str, Any]:
+    def run(self, query: str, chat_history: List[dict] = None) -> Dict[str, Any]:
         """
         執行本地檢索與問答生成。
         
         Args:
             query (str): 學生的提問
+            chat_history (List[dict]): 對話歷史紀錄
             
         Returns:
             Dict[str, Any]: 包含 'answer' (帶引用回答) 與 'chunks' (召回的原始切塊) 的字典
@@ -48,7 +49,7 @@ class LocalSearchTool:
             logger.info(f"[LocalSearchTool] 語意搜尋召回完成，共召回 {len(retrieved_chunks)} 個切塊。")
             
             # 2. 調用 RAG 生成回答
-            answer = self.generator.generate_answer(query, retrieved_chunks)
+            answer = self.generator.generate_answer(query, retrieved_chunks, chat_history=chat_history)
             
             return {
                 "answer": answer,

@@ -4,7 +4,7 @@ import logging
 from typing import List, Tuple
 from dotenv import load_dotenv
 from langchain_core.documents import Document
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from src.prompts.academic_prompts import ACADEMIC_QA_SYSTEM_PROMPT, ACADEMIC_QA_USER_TEMPLATE
@@ -82,20 +82,21 @@ class AcademicRAGGenerator:
             
         return "\n\n".join(context_blocks)
 
-    def generate_answer(self, query: str, retrieved_chunks: List[Tuple[Document, float]]) -> str:
+    def generate_answer(self, query: str, retrieved_chunks: List[Tuple[Document, float]], chat_history: List[dict] = None) -> str:
         """
-        將檢索到的文獻切塊與問題組裝，呼叫 Gemini API 生成帶有精確引用標記的答案。
+        將檢索到的文獻切塊與問題組裝，結合對話歷史，呼叫 Gemini API 生成帶有精確引用標記的答案。
         
         Args:
             query (str): 使用者的提問（如 'What is Multi-Head Attention?'）
             retrieved_chunks (List[Tuple[Document, float]]): 由向量庫檢索出來的高相關文獻切塊與分數
+            chat_history (List[dict]): 對話歷史紀錄，格式為 [{'role': 'user', 'content': '...'}, {'role': 'assistant', 'content': '...'}]
             
         Returns:
             str: 帶有學術引用標記的回答。
         """
         # 防呆：如果沒有召回任何切塊，直接給予誠實的回絕，拒絕無事實依據的生成
         if not retrieved_chunks:
-            logger.warning("沒有召回任何相關文獻切塊，拒絕生成以免幻覺。")
+            logger.warning("沒有召回 any 相關文獻切塊，拒絕生成以免幻覺。")
             return (
                 "抱歉，根據目前已向量化的文獻庫，未發現與您的問題直接相關的研究數據或學術結論。\n"
                 "💡 **建議**：請先前往「上傳文獻區」上傳包含該主題的 PDF 論文，並點擊「向量化本地文獻庫」以利系統檢索。"
@@ -110,16 +111,27 @@ class AcademicRAGGenerator:
             query=query
         )
         
-        # 3. 包裝成 LangChain Core Messages
-        messages = [
-            SystemMessage(content=ACADEMIC_QA_SYSTEM_PROMPT),
-            HumanMessage(content=user_content)
-        ]
+        # 3. 包裝成 LangChain Core Messages (加入對話歷史記憶)
+        messages = [SystemMessage(content=ACADEMIC_QA_SYSTEM_PROMPT)]
+        
+        if chat_history:
+            # 限制最近 5 輪以防 Token 爆炸與 API 限流
+            for msg in chat_history[-5:]:
+                role = msg.get("role")
+                if role == "user":
+                    messages.append(HumanMessage(content=msg.get("content")))
+                elif role == "assistant":
+                    # assistant 回答可能包含大量 HTML 等網頁渲染樣式，我們使用其純文字 plain_answer 來做 Context 傳參，避免干擾 LLM
+                    plain_answer = msg.get("plain_answer") or msg.get("content")
+                    messages.append(AIMessage(content=plain_answer))
+                    
+        messages.append(HumanMessage(content=user_content))
         
         logger.info("開始呼叫 Gemini API 進行學術 RAG 回答生成...")
         try:
-            # 4. 呼叫模型
-            response = self.chat.invoke(messages)
+            # 4. 呼叫模型 (已加入 429 限流自動重試機制)
+            from src.utils.retry_handler import retry_on_429
+            response = retry_on_429(self.chat.invoke, messages)
             logger.info("Gemini API 回答生成完成！")
             return response.content
         except Exception as e:

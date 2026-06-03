@@ -27,12 +27,15 @@ class AcademicComparisonManager:
     對本地上傳的多篇學術 PDF 進行交叉比對並生成對照表格。
     """
     
-    def __init__(self, persist_directory: str = "vectorstore"):
+    def __init__(self, persist_directory: str = "vectorstore", vector_manager: AcademicVectorManager = None):
         """
         初始化比較管理員。
         """
         self.persist_directory = persist_directory
-        self.vector_manager = AcademicVectorManager(persist_directory=self.persist_directory)
+        if vector_manager is not None:
+            self.vector_manager = vector_manager
+        else:
+            self.vector_manager = AcademicVectorManager(persist_directory=self.persist_directory)
         
         # 載入 API Key
         api_key = os.getenv("GEMINI_API_KEY")
@@ -124,8 +127,9 @@ class AcademicComparisonManager:
         )
         
         try:
-            # 3. 呼叫 LLM 結構化輸出
-            paper_features: PaperFeatures = self.structured_llm.invoke(prompt)
+            # 3. 呼叫 LLM 結構化輸出 (已加入 429 重試機制)
+            from src.utils.retry_handler import retry_on_429
+            paper_features: PaperFeatures = retry_on_429(self.structured_llm.invoke, prompt)
             logger.info(f"成功完成論文 '{pdf_name}' 的結構化特徵提煉: {paper_features.title}")
             return paper_features
         except Exception as e:

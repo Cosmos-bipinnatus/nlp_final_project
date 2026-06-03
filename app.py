@@ -22,8 +22,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 載入 .env 檔案中的環境變數
-load_dotenv()
+# 載入 .env 檔案中的環境變數 (已停用，改為使用者介面手動輸入)
+# load_dotenv()
 
 # 設定 Streamlit 頁面屬性（必須放在最前面）
 st.set_page_config(
@@ -156,6 +156,33 @@ st.markdown("""
         background: rgba(239, 68, 68, 0.2) !important;
         transform: translateY(-1px) !important;
     }
+    
+    /* 骨架屏載入動畫 (Skeleton Screen Loader) */
+    @keyframes pulse {
+        0% { background-color: rgba(255, 255, 255, 0.05); }
+        50% { background-color: rgba(255, 255, 255, 0.15); }
+        100% { background-color: rgba(255, 255, 255, 0.05); }
+    }
+    .skeleton-card {
+        background: rgba(30, 41, 59, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+    }
+    .skeleton-title {
+        height: 24px;
+        width: 45%;
+        margin-bottom: 18px;
+        border-radius: 4px;
+        animation: pulse 1.5s infinite ease-in-out;
+    }
+    .skeleton-line {
+        height: 14px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        animation: pulse 1.5s infinite ease-in-out;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -169,24 +196,46 @@ st.markdown("""
 # ==========================================
 
 @st.cache_resource
-def init_vector_manager():
+def init_vector_manager(api_key: str):
     """快取初始化向量管理員（Embeddings + ChromaDB 連線）"""
+    os.environ["GEMINI_API_KEY"] = api_key
     return AcademicVectorManager(persist_directory="vectorstore")
 
 @st.cache_resource
-def init_rag_generator():
+def init_rag_generator(api_key: str):
     """快取初始化 RAG 生成器（Gemini 2.5-Flash LLM）"""
+    os.environ["GEMINI_API_KEY"] = api_key
     return AcademicRAGGenerator()
 
 @st.cache_resource
-def init_academic_agent():
+def init_academic_agent(api_key: str):
     """快取初始化學術路由代理（Router Agent + Local/ArXiv 工具）"""
+    os.environ["GEMINI_API_KEY"] = api_key
     return AcademicRouterAgent(persist_directory="vectorstore")
 
 @st.cache_resource
-def init_comparison_manager():
+def init_comparison_manager(api_key: str, _vector_manager=None):
     """快取初始化跨文獻比較管理員（Pydantic 結構化特徵提取引擎）"""
-    return AcademicComparisonManager(persist_directory="vectorstore")
+    os.environ["GEMINI_API_KEY"] = api_key
+    return AcademicComparisonManager(persist_directory="vectorstore", vector_manager=_vector_manager)
+
+# 優先建立側邊欄 API Key 輸入框
+with st.sidebar:
+    st.markdown("### 🛠️ <span class='sidebar-title'>專案控制台</span>", unsafe_allow_html=True)
+    st.info("這裡可上傳文獻、啟動/重置向量引擎，並動態監控系統狀態。")
+    
+    st.markdown("---")
+    st.markdown("#### 🔑 金鑰狀態")
+    gemini_api_key = st.text_input(
+        label="請輸入您的 Gemini API Key",
+        type="password",
+        placeholder="AI Studio 申請的 API 金鑰...",
+        help="部署或本機測試時，請在此輸入您的 Gemini API Key。此金鑰僅用於本瀏覽器會話，不會被儲存。"
+    )
+    if gemini_api_key:
+        st.success("🟢 API Key 已輸入")
+    else:
+        st.error("❌ 請輸入 API Key 以啟用服務")
 
 # 使用快取函式進行安全初始化
 vector_manager = None
@@ -198,30 +247,76 @@ rag_error_msg = ""
 agent_error_msg = ""
 comparison_error_msg = ""
 
-try:
-    vector_manager = init_vector_manager()
-except Exception as e:
-    db_error_msg = str(e)
-    logger.error(f"Streamlit 初始化向量資料庫失敗: {e}")
+if gemini_api_key:
+    os.environ["GEMINI_API_KEY"] = gemini_api_key
+    try:
+        vector_manager = init_vector_manager(gemini_api_key)
+    except Exception as e:
+        db_error_msg = str(e)
+        logger.error(f"Streamlit 初始化向量資料庫失敗: {e}")
 
-try:
-    rag_generator = init_rag_generator()
-except Exception as e:
-    rag_error_msg = str(e)
-    logger.error(f"Streamlit 初始化 RAG 生成器失敗: {e}")
+    try:
+        rag_generator = init_rag_generator(gemini_api_key)
+    except Exception as e:
+        rag_error_msg = str(e)
+        logger.error(f"Streamlit 初始化 RAG 生成器失敗: {e}")
 
-try:
-    academic_agent = init_academic_agent()
-except Exception as e:
-    agent_error_msg = str(e)
-    logger.error(f"Streamlit 初始化學術路由代理失敗: {e}")
+    try:
+        academic_agent = init_academic_agent(gemini_api_key)
+    except Exception as e:
+        agent_error_msg = str(e)
+        logger.error(f"Streamlit 初始化學術路由代理失敗: {e}")
 
-try:
-    comparison_manager = init_comparison_manager()
-except Exception as e:
-    comparison_error_msg = str(e)
-    logger.error(f"Streamlit 初始化比較管理員失敗: {e}")
+    try:
+        comparison_manager = init_comparison_manager(gemini_api_key, _vector_manager=vector_manager)
+    except Exception as e:
+        comparison_error_msg = str(e)
+        logger.error(f"Streamlit 初始化比較管理員失敗: {e}")
 
+
+
+# --- 3-d. 骨架屏載入動畫渲染器 (Week 6 視覺優化) ---
+def render_skeleton_screen(card_type="qa"):
+    """渲染具有脈動動畫的 HTML 骨架屏"""
+    if card_type == "qa":
+        return """
+        <div class="skeleton-card">
+            <div class="skeleton-title"></div>
+            <div class="skeleton-line" style="width: 90%;"></div>
+            <div class="skeleton-line" style="width: 85%;"></div>
+            <div class="skeleton-line" style="width: 95%;"></div>
+            <div class="skeleton-line" style="width: 70%;"></div>
+        </div>
+        """
+    elif card_type == "search":
+        return """
+        <div style="display: grid; grid-template-columns: 1fr; gap: 15px; width: 100%;">
+            <div class="skeleton-card" style="padding: 15px; margin-bottom: 0px;">
+                <div class="skeleton-title" style="width: 30%; height: 16px;"></div>
+                <div class="skeleton-line" style="width: 95%; height: 12px;"></div>
+                <div class="skeleton-line" style="width: 80%; height: 12px;"></div>
+            </div>
+            <div class="skeleton-card" style="padding: 15px; margin-bottom: 0px;">
+                <div class="skeleton-title" style="width: 25%; height: 16px;"></div>
+                <div class="skeleton-line" style="width: 90%; height: 12px;"></div>
+                <div class="skeleton-line" style="width: 75%; height: 12px;"></div>
+            </div>
+        </div>
+        """
+    elif card_type == "comparison":
+        return """
+        <div class="skeleton-card">
+            <div class="skeleton-title" style="width: 40%; height: 20px; margin-bottom: 25px;"></div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px;">
+                <div class="skeleton-line" style="height: 100px;"></div>
+                <div class="skeleton-line" style="height: 100px;"></div>
+                <div class="skeleton-line" style="height: 100px;"></div>
+                <div class="skeleton-line" style="height: 100px;"></div>
+                <div class="skeleton-line" style="height: 100px;"></div>
+            </div>
+        </div>
+        """
+    return ""
 
 # ==========================================
 # 4. 核心業務邏輯：多 PDF 安全上傳與存檔
@@ -269,7 +364,7 @@ def save_uploaded_files(uploaded_files: list) -> tuple[int, int, list[str]]:
 # 頂部視覺 Banner
 st.markdown("""
 <div class="hero-container">
-    <span class="badge">Week 4: RAG 管線與引用標記 (RAG Pipeline & Citations)</span>
+    <span class="badge">Week 6 (Complete & Optimized): 評估與整合 (Evaluation & UI Integration)</span>
     <h1 class="hero-title">Literature Reviewer 📚</h1>
     <p class="hero-subtitle">大二資工系專題：基於 Google Gemini 2.5-Flash 與雙欄排版還原的學術文獻 RAG 系統</p>
 </div>
@@ -277,20 +372,8 @@ st.markdown("""
 
 # 左右雙欄配置 (側邊欄 Sidebar + 主面板 Main Panel)
 with st.sidebar:
-    st.markdown("### 🛠️ <span class='sidebar-title'>專案控制台</span>", unsafe_allow_html=True)
-    st.info("這裡可上傳文獻、啟動/重置向量引擎，並動態監控系統狀態。")
+    # 這裡承接上方已渲染的 API Key 控制面板，直接開始顯示系統元件狀態
     
-    # --- 1. 金鑰狀態區 ---
-    st.markdown("---")
-    st.markdown("#### 🔑 金鑰狀態")
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_key or gemini_key == "your_gemini_api_key_here":
-        st.error("❌ Gemini API Key 未設定")
-        st.caption("請在專案根目錄的 `.env` 檔案中設定有效的 `GEMINI_API_KEY`。")
-    else:
-        st.success("🟢 Gemini API Key 已載入")
-        st.caption("成功連結 Google Developer API，提供文字嵌入與生成功能。")
-        
     # --- 2. 向量引擎狀態區 ---
     st.markdown("---")
     st.markdown("#### 🧠 向量庫引擎狀態")
@@ -343,8 +426,79 @@ with st.sidebar:
     
     if len(existing_pdfs) > 0:
         st.write("📄 文獻清單：")
+        
+        # 獲取當前已向量化的來源清單 (Option D)
+        vectorized_sources = vector_manager.get_unique_sources() if vector_manager else []
+        
         for i, pdf in enumerate(existing_pdfs, 1):
-            st.caption(f"{i}. {pdf.name}")
+            is_vectorized = pdf.name in vectorized_sources
+            status_emoji = "🟢" if is_vectorized else "⚪"
+            
+            # 使用雙欄配置顯示檔名與操作按鈕
+            col_pdf_name, col_actions = st.columns([7, 3])
+            
+            with col_pdf_name:
+                st.caption(f"{status_emoji} {i}. {pdf.name}")
+                
+            with col_actions:
+                col_v, col_d = st.columns(2)
+                
+                # A. 向量化按鈕：若尚未向量化，顯示單篇向量化按鈕
+                with col_v:
+                    if not is_vectorized:
+                        if st.button("🔄", key=f"btn_vec_single_{pdf.name}", help=f"單篇向量化: {pdf.name}"):
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            try:
+                                status_text.info(f"📖 正在解析雙欄排版...")
+                                parser = DoubleColumnPDFParser(pdf)
+                                parsed_pages = parser.parse_pdf()
+                                progress_bar.progress(30)
+                                
+                                status_text.info(f"✂️ 正在進行語意切塊...")
+                                splitter = AcademicTextSplitter(chunk_size=600, chunk_overlap=120)
+                                chunks = splitter.split_parsed_documents(parsed_pages)
+                                progress_bar.progress(60)
+                                
+                                if chunks:
+                                    status_text.info(f"🚀 正在寫入向量庫...")
+                                    vector_manager.store_documents(chunks)
+                                    progress_bar.progress(100)
+                                    st.success(f"🎉 論文 `{pdf.name}` 向量化成功！")
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.warning("⚠️ 未能產生有效的文本切塊！")
+                            except Exception as e:
+                                st.error(f"❌ 向量化失敗: {e}")
+                            finally:
+                                status_text.empty()
+                                progress_bar.empty()
+                    else:
+                        st.write("") # 佔位
+                        
+                # B. 刪除按鈕：物理刪除實體檔案與 ChromaDB 向量，並清理比較矩陣快取
+                with col_d:
+                    if st.button("🗑️", key=f"btn_del_single_{pdf.name}", help=f"刪除此論文與向量: {pdf.name}"):
+                        try:
+                            # 1. 刪除 ChromaDB 中的向量
+                            if vector_manager:
+                                vector_manager.delete_by_source(pdf.name)
+                            # 2. 物理刪除檔案
+                            if pdf.exists():
+                                pdf.unlink()
+                            # 3. 清理比較對應之 Session State 快取
+                            if "comparison_data" in st.session_state and st.session_state.comparison_data:
+                                st.session_state.comparison_data = [
+                                    item for item in st.session_state.comparison_data if item["pdf_file"] != pdf.name
+                                ]
+                                if pdf.name in st.session_state.comparison_pdf_set:
+                                    st.session_state.comparison_pdf_set.discard(pdf.name)
+                                    
+                            st.success(f"🧹 已成功刪除 `{pdf.name}` 及其向量資料！")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 刪除失敗: {e}")
             
         # --- 5. 向量引擎控制按鈕 ---
         st.markdown("---")
@@ -463,7 +617,9 @@ with col_main:
         st.markdown("### 🔍 高維語意相似度搜尋測試")
         st.write("利用 Google Gemini 的高維度詞嵌入模型與本地持久化的 ChromaDB，進行相似度召回測試。這是 RAG (檢索增強生成) 的關鍵基礎！")
         
-        if not vector_manager or vector_manager.get_collection_count() == 0:
+        if not gemini_api_key:
+            st.info("👉 請在左側「專案控制台」輸入您的 **Gemini API Key** 以啟用語意相似度檢索功能。")
+        elif not vector_manager or vector_manager.get_collection_count() == 0:
             st.warning("⚠️ 語意檢索不可用：向量庫目前沒有資料！請先完成論文上傳，並在側邊欄點擊「🔄 向量化本地文獻庫」。")
         else:
             # 檢索控制項
@@ -489,226 +645,265 @@ with col_main:
                 if not search_query.strip():
                     st.warning("⚠️ 請輸入有效的查詢文字！")
                 else:
-                    with st.spinner("🕵️ 正在計算查詢向量並於 ChromaDB 進行相似度比對 (L2 距離度量)..."):
-                        try:
-                            # 執行相似度檢索，取得 (Document, L2_distance) 清單
-                            results = vector_manager.semantic_search(search_query, k=k_val)
+                    placeholder = st.empty()
+                    placeholder.markdown(render_skeleton_screen("search"), unsafe_allow_html=True)
+                    try:
+                        # 執行相似度檢索，取得 (Document, L2_distance) 清單
+                        results = vector_manager.semantic_search(search_query, k=k_val)
+                        placeholder.empty()
+                        
+                        if results:
+                            st.success(f"🎉 檢索完成！共召回前 {len(results)} 個語意最相似的學術切塊：")
+                            st.markdown("---")
                             
-                            if results:
-                                st.success(f"🎉 檢索完成！共召回前 {len(results)} 個語意最相似的學術切塊：")
-                                st.markdown("---")
+                            # 使用卡片展示每個召回的切塊
+                            for rank, (doc, score) in enumerate(results, 1):
+                                source_name = doc.metadata.get("source", "未知文獻")
+                                page_num = doc.metadata.get("page", "?")
+                                total_pages = doc.metadata.get("total_pages", "?")
+                                chunk_idx = doc.metadata.get("chunk_index", "?")
                                 
-                                # 使用卡片展示每個召回的切塊
-                                for rank, (doc, score) in enumerate(results, 1):
-                                    source_name = doc.metadata.get("source", "未知文獻")
-                                    page_num = doc.metadata.get("page", "?")
-                                    total_pages = doc.metadata.get("total_pages", "?")
-                                    chunk_idx = doc.metadata.get("chunk_index", "?")
-                                    
-                                    st.markdown(f"""
-                                    <div class="glass-card">
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap;">
-                                            <span style="font-weight: 700; color: #06b6d4; font-size: 1.15rem;">
-                                                🏆 Rank #{rank} | 向量 L2 距離: <code style="color: #a5f3fc; background-color: rgba(6, 182, 212, 0.15); padding: 2px 6px; border-radius: 4px;">{score:.4f}</code>
-                                            </span>
-                                            <span class="badge" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); font-size: 0.85rem; margin-bottom: 0px;">
-                                                📑 {source_name} | 第 {page_num} 頁 (共 {total_pages} 頁)
-                                            </span>
-                                        </div>
-                                        <div style="font-size: 1rem; color: #e2e8f0; line-height: 1.7; background-color: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: 8px; border-left: 5px solid #06b6d4; font-family: monospace; white-space: pre-wrap;">
-{doc.page_content.strip()}
-                                        </div>
-                                        <div style="display: flex; justify-content: flex-end; font-size: 0.8rem; color: #64748b; margin-top: 8px;">
-                                            <span>本地切塊索引: #{chunk_idx}</span>
-                                        </div>
+                                st.markdown(f"""
+                                <div class="glass-card">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap;">
+                                        <span style="font-weight: 700; color: #06b6d4; font-size: 1.15rem;">
+                                            🏆 Rank #{rank} | 向量 L2 距離: <code style="color: #a5f3fc; background-color: rgba(6, 182, 212, 0.15); padding: 2px 6px; border-radius: 4px;">{score:.4f}</code>
+                                        </span>
+                                        <span class="badge" style="background: linear-gradient(135deg, #38bdf8 0%, #1d4ed8 100%); font-size: 0.85rem; margin-bottom: 0px;">
+                                            📑 {source_name} | 第 {page_num} 頁 (共 {total_pages} 頁)
+                                        </span>
                                     </div>
-                                    """, unsafe_allow_html=True)
-                            else:
-                                st.info("🔍 在高維語意空間中未發現匹配的文本。")
-                        except Exception as e:
-                            st.error(f"❌ 相似度檢索發生錯誤: {e}")
-                            logger.error(f"檢索錯誤: {e}")
+                                    <div style="font-size: 1rem; color: #e2e8f0; line-height: 1.7; background-color: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: 8px; border-left: 5px solid #06b6d4; font-family: monospace; white-space: pre-wrap;">
+                                        {doc.page_content.strip()}
+                                    </div>
+                                    <div style="display: flex; justify-content: flex-end; font-size: 0.8rem; color: #64748b; margin-top: 8px;">
+                                        <span>本地切塊索引: #{chunk_idx}</span>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        else:
+                            st.info("🔍 在高維語意空間中未發現匹配的文本。")
+                    except Exception as e:
+                        st.error(f"❌ 相似度檢索發生錯誤: {e}")
+                        logger.error(f"檢索錯誤: {e}")
 
     # ==========================================
-    # Tab 3: AI 文獻問答與學術代理系統 (Week 4 & 5 整合驗證)
+    # Tab 3: AI 文獻問答與學術代理系統 (Week 4 & 5 整合，Option A & C 優化)
     # ==========================================
     with tab_qa:
-        st.markdown("### 💬 AI 論文文獻問答與學術代理系統")
+        # 1. 標題與對話清空按鈕雙欄排版
+        col_qa_title, col_qa_clear = st.columns([8, 2])
+        with col_qa_title:
+            st.markdown("### 💬 AI 論文文獻問答與學術代理系統")
+        with col_qa_clear:
+            if st.button("🗑️ 清空對話紀錄", key="btn_clear_chat", use_container_width=True):
+                st.session_state.chat_history = []
+                st.rerun()
+                
         st.write("本系統支援傳統的 **本地 RAG (檢索增強生成)** 問答，更可開啟 **AI 學術路由代理 (Router Agent)**。代理會自主分析您的提問，決定路由至「本地文獻庫」或「外接 ArXiv 線上學術網」，並在畫面上完整渲染其思考歷程與決策原因！")
         
-        if not vector_manager or vector_manager.get_collection_count() == 0:
+        # 初始化對話快取
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+            
+        if not gemini_api_key:
+            st.info("👉 請在左側「專案控制台」輸入您的 **Gemini API Key** 以啟用 AI 論文問答功能。")
+        elif not vector_manager or vector_manager.get_collection_count() == 0:
             st.warning("⚠️ 問答系統不可用：向量庫目前沒有資料！請先完成論文上傳，並在側邊欄點擊「🔄 向量化本地文獻庫」。")
         elif not rag_generator:
             st.error("⚠️ 生成引擎未啟用，無法進行問答。請檢查 API Key 是否設定正確。")
         else:
-            # 檢索控制項
-            st.markdown("#### 💡 輸入您的學術提問")
-            st.caption("例如本地提問：`What is Multi-Head Attention?` | 外部提問：`Search for latest research on RAG in 2025.`")
-            
-            qa_query = st.text_input(
-                label="問答查詢文字",
-                placeholder="輸入您的學術問題進行文獻問答與學術路由檢索...",
-                label_visibility="collapsed"
-            )
-            
-            # 學術代理路由 Toggle 開關
+            # 2. 控制開關排版
             use_agent = st.toggle(
                 label="🤖 啟用 AI 學術路由代理 (Agent Router)",
                 value=True,
                 help="啟用後，AI 會先分析您的問題語意，自動決定要閱讀本地已上傳的文獻 (RAG)，還是外接 ArXiv API 搜尋全世界最新的相關論文！"
             )
             
-            col_qa_k, col_qa_submit = st.columns([2, 10])
+            col_qa_k, _ = st.columns([3, 7])
             with col_qa_k:
                 qa_k_val = st.slider("🎯 檢索參考切塊數 (k)", min_value=1, max_value=8, value=4, key="qa_k_slider")
+            st.markdown("---")
+            
+            # 3. 渲染對話歷史記錄 (Option A Bubble UI)
+            for msg in st.session_state.chat_history:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"], unsafe_allow_html=True)
+                    # 展開思考歷程或參考來源
+                    if msg["role"] == "assistant":
+                        if "thinking" in msg and msg["thinking"]:
+                            with st.expander("🤖 檢視路由決策歷程 (Thinking Process)", expanded=False):
+                                st.markdown(msg["thinking"], unsafe_allow_html=True)
+                        if "sources" in msg and msg["sources"]:
+                            with st.expander("🔍 檢視本次回答參考之學術文獻來源與切塊", expanded=False):
+                                for s_html in msg["sources"]:
+                                    st.markdown(s_html, unsafe_allow_html=True)
+                                    
+            # 4. 輸入欄位與生成邏輯 (st.chat_input)
+            if qa_query := st.chat_input("輸入您的學術問題進行問答與檢索...", key="qa_chat_input"):
+                # 立即在畫面上渲染使用者的提問
+                with st.chat_message("user"):
+                    st.markdown(qa_query)
+                st.session_state.chat_history.append({"role": "user", "content": qa_query})
                 
-            with col_qa_submit:
-                st.write("")  # 垂直對齊對齊
-                st.write("")
-                submit_qa = st.button("💬 啟動 AI 智慧問答", key="qa_submit_btn")
-                
-            if qa_query or submit_qa:
-                if not qa_query.strip():
-                    st.warning("⚠️ 請輸入有效的問題內容！")
-                else:
-                    # 判斷是否使用學術路由代理
-                    if use_agent and academic_agent:
-                        with st.spinner("🕵️ AI 學術代理正在進行問題分析與路由分發決策..."):
-                            try:
-                                # 執行端到端的代理決策與工具分發
-                                response = academic_agent.route_and_execute(qa_query)
-                                
-                                # A. 渲染精美的 Glassmorphic 思考歷程面板 (Thinking Process)
-                                route_zh = "本地文獻庫 (RAG)" if response["route"] == "local" else "外接 ArXiv 學術網 (API)"
-                                st.markdown(f"""
-                                <div class="glass-card" style="border: 1px solid rgba(6, 182, 212, 0.4); background: linear-gradient(135deg, rgba(15, 23, 42, 0.7) 0%, rgba(30, 41, 59, 0.7) 100%); margin-bottom: 25px; padding: 22px; border-radius: 12px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);">
-                                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                                        <span style="font-size: 1.5rem;">🤖</span>
-                                        <span style="font-size: 1.25rem; font-weight: 700; background: linear-gradient(to right, #38bdf8, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">AI 學術代理路由決策歷程 (Thinking Process)</span>
-                                    </div>
-                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 18px;">
-                                        <div style="background: rgba(0, 0, 0, 0.25); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                                            <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">🎯 路由分發通道</div>
-                                            <div style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{route_zh}</div>
-                                        </div>
-                                        <div style="background: rgba(0, 0, 0, 0.25); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                                            <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">🔑 提取並優化之學術關鍵字</div>
-                                            <div style="font-size: 1.05rem; font-weight: 700; color: #a5f3fc; font-family: monospace;">'{response["search_query"]}'</div>
-                                        </div>
-                                    </div>
-                                    <div style="background: rgba(0, 0, 0, 0.2); padding: 16px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); border-left: 4px solid #06b6d4;">
-                                        <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 6px; font-weight: 600;">💡 代理決策動機 (Rationale)</div>
-                                        <div style="font-size: 0.95rem; color: #e2e8f0; line-height: 1.6;">{response["rationale"]}</div>
-                                    </div>
+                # 渲染 assistant 回覆氣泡與骨架屏 (Option E)
+                with st.chat_message("assistant"):
+                    placeholder = st.empty()
+                    placeholder.markdown(render_skeleton_screen("qa"), unsafe_allow_html=True)
+                    
+                    try:
+                        thinking_html = ""
+                        sources_html_list = []
+                        answer_content = ""
+                        plain_answer = ""
+                        
+                        if use_agent and academic_agent:
+                            # 執行代理路由與工具分發
+                            response = academic_agent.route_and_execute(qa_query, chat_history=st.session_state.chat_history[:-1])
+                            
+                            # 整理 Thinking Process HTML
+                            route_zh = "本地文獻庫 (RAG)" if response["route"] == "local" else "外接 ArXiv 學術網 (API)"
+                            thinking_html = f"""
+                            <div style="background: rgba(0, 0, 0, 0.25); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;">
+                                <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">🎯 路由分發通道：<b>{route_zh}</b></div>
+                                <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">🔑 提取並優化之學術關鍵字：<code style="color: #a5f3fc; font-family: monospace;">'{response["search_query"]}'</code></div>
+                                <div style="font-size: 0.9rem; color: #cbd5e1; border-left: 3px solid #06b6d4; padding-left: 10px; margin-top: 8px; font-style: italic; line-height: 1.5;">
+                                    <b>決策理由：</b>{response["rationale"]}
                                 </div>
-                                """, unsafe_allow_html=True)
-                                
-                                # B. 渲染最終結果與對應的細節展開區
-                                st.success("🎉 AI 學術分析與檢索完成！")
-                                st.markdown("#### 📚 學術文獻回顧生成報告")
-                                
-                                st.markdown(f"""
-                                <div class="glass-card" style="border-left: 6px solid #06b6d4; background-color: rgba(15, 23, 42, 0.45); padding: 25px; margin-bottom: 20px;">
-                                    <div style="font-size: 1.05rem; line-height: 1.8; color: #f8fafc;">
-                                        {response["answer"]}
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                
-                                # C. 根據路由展示各自的參考文獻細節面板
-                                if response["route"] == "local" and response["chunks"]:
-                                    with st.expander("🔍 檢視本次回答參考之本地原始文獻來源與切塊內容", expanded=False):
-                                        for idx, (doc, score) in enumerate(response["chunks"], 1):
-                                            source_name = doc.metadata.get("source", "未知文獻")
-                                            page_num = doc.metadata.get("page", "?")
-                                            total_pages = doc.metadata.get("total_pages", "?")
-                                            chunk_idx = doc.metadata.get("chunk_index", "?")
-                                            
-                                            st.markdown(f"""
-                                            <div style="background-color: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                                                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #38bdf8; margin-bottom: 5px;">
-                                                    <span><b>來源 #{idx}：</b><code>{source_name}</code> (第 {page_num} 頁 / 共 {total_pages} 頁)</span>
-                                                    <span>L2 距離：<code>{score:.4f}</code> | 切塊索引：#{chunk_idx}</span>
-                                                </div>
-                                                <div style="font-size: 0.9rem; color: #94a3b8; font-family: monospace; white-space: pre-wrap; background-color: rgba(0,0,0,0.15); padding: 8px; border-radius: 4px;">
-{doc.page_content.strip()}
-                                                </div>
-                                            </div>
-                                            """, unsafe_allow_html=True)
-                                            
-                                elif response["route"] == "arxiv" and response["papers"]:
-                                    with st.expander(f"🌐 檢視 ArXiv 線上論文原始結構化資料（共 {len(response['papers'])} 篇）", expanded=False):
-                                        for idx, paper in enumerate(response["papers"], 1):
-                                            st.markdown(f"""
-                                            <div class="glass-card" style="margin-bottom: 12px; padding: 18px; background: rgba(30, 41, 59, 0.35); border: 1px solid rgba(255, 255, 255, 0.05);">
-                                                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; margin-bottom: 8px; gap: 10px;">
-                                                    <span style="font-weight: 700; color: #38bdf8; font-size: 1.05rem;">📄 {paper['title']}</span>
-                                                    <span class="badge" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); margin-bottom: 0px; font-size: 0.75rem;">ID: {paper['arxiv_id']}</span>
-                                                </div>
-                                                <div style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px;">
-                                                    👥 <b>作者：</b>{paper['authors']} | 📅 <b>發表日期：</b>{paper['published']}
-                                                </div>
-                                                <div style="font-size: 0.9rem; color: #cbd5e1; background: rgba(15, 23, 42, 0.45); padding: 12px; border-radius: 6px; font-family: monospace; max-height: 180px; overflow-y: auto; margin-bottom: 10px; line-height: 1.5; border-left: 3px solid #10b981;">
-                                                    <b>英文原始摘要：</b><br>{paper['summary']}
-                                                </div>
-                                                <div style="display: flex; justify-content: flex-end;">
-                                                    <a href="{paper['pdf_url']}" target="_blank" style="text-decoration: none; background: rgba(6, 182, 212, 0.12); color: #06b6d4; padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid rgba(6, 182, 212, 0.25); font-weight: 600; transition: all 0.3s;">🔗 前往 ArXiv 下載與閱讀 PDF 檔案</a>
-                                                </div>
-                                            </div>
-                                            """, unsafe_allow_html=True)
-                                            
-                            except Exception as e:
-                                st.error(f"❌ 智慧代理執行失敗: {e}")
-                                logger.error(f"智慧代理執行失敗: {e}")
-                                
-                    else:
-                        # 走傳統的單純本地 RAG 模式
-                        with st.spinner("🔍 正在高維向量空間中檢索本地最相關之文獻段落..."):
-                            try:
-                                retrieved_chunks = vector_manager.semantic_search(qa_query, k=qa_k_val)
-                            except Exception as e:
-                                st.error(f"❌ 檢索失敗: {e}")
-                                retrieved_chunks = []
-                                
-                        if retrieved_chunks:
-                            with st.spinner("🤖 正在調用 Gemini 2.5-Flash 進行學術語意分析與引用追蹤..."):
-                                try:
-                                    cited_answer = rag_generator.generate_answer(qa_query, retrieved_chunks)
+                            </div>
+                            """
+                            
+                            # 整理 Chunks / Papers HTML
+                            if response["route"] == "local" and response["chunks"]:
+                                for idx, (doc, score) in enumerate(response["chunks"], 1):
+                                    source_name = doc.metadata.get("source", "未知文獻")
+                                    page_num = doc.metadata.get("page", "?")
+                                    total_pages = doc.metadata.get("total_pages", "?")
+                                    chunk_idx = doc.metadata.get("chunk_index", "?")
                                     
-                                    st.success("🎉 本地 RAG 學術分析完成！")
-                                    st.markdown("#### 📚 本地 RAG 學術回顧分析結果")
-                                    
-                                    st.markdown(f"""
-                                    <div class="glass-card" style="border-left: 6px solid #06b6d4; background-color: rgba(15, 23, 42, 0.45); padding: 25px;">
-                                        <div style="font-size: 1.05rem; line-height: 1.8; color: #f8fafc;">
-                                            {cited_answer}
+                                    block_html = f"""
+                                    <div style="background-color: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #38bdf8; margin-bottom: 5px;">
+                                            <span><b>來源 #{idx}：</b><code>{source_name}</code> (第 {page_num} 頁 / 共 {total_pages} 頁)</span>
+                                            <span>L2 距離：<code>{score:.4f}</code> | 切塊索引：#{chunk_idx}</span>
+                                        </div>
+                                        <div style="font-size: 0.9rem; color: #94a3b8; font-family: monospace; white-space: pre-wrap; background-color: rgba(0,0,0,0.15); padding: 8px; border-radius: 4px;">
+                                            {doc.page_content.strip()}
                                         </div>
                                     </div>
-                                    """, unsafe_allow_html=True)
+                                    """
+                                    sources_html_list.append(block_html)
                                     
-                                    with st.expander("🔍 檢視本次回答參考之本地原始文獻來源與切塊內容", expanded=False):
-                                        for idx, (doc, score) in enumerate(retrieved_chunks, 1):
-                                            source_name = doc.metadata.get("source", "未知文獻")
-                                            page_num = doc.metadata.get("page", "?")
-                                            total_pages = doc.metadata.get("total_pages", "?")
-                                            chunk_idx = doc.metadata.get("chunk_index", "?")
-                                            
-                                            st.markdown(f"""
-                                            <div style="background-color: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                                                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #38bdf8; margin-bottom: 5px;">
-                                                    <span><b>來源 #{idx}：</b><code>{source_name}</code> (第 {page_num} 頁 / 共 {total_pages} 頁)</span>
-                                                    <span>L2 距離：<code>{score:.4f}</code> | 切塊索引：#{chunk_idx}</span>
-                                                </div>
-                                                <div style="font-size: 0.9rem; color: #94a3b8; font-family: monospace; white-space: pre-wrap; background-color: rgba(0,0,0,0.15); padding: 8px; border-radius: 4px;">
-{doc.page_content.strip()}
-                                                </div>
-                                            </div>
-                                            """, unsafe_allow_html=True)
-                                            
-                                except Exception as e:
-                                    st.error(f"❌ 生成回答失敗: {e}")
+                            elif response["route"] == "arxiv" and response["papers"]:
+                                for idx, paper in enumerate(response["papers"], 1):
+                                    block_html = f"""
+                                    <div style="margin-bottom: 12px; padding: 14px; background: rgba(30, 41, 59, 0.35); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; margin-bottom: 8px; gap: 10px;">
+                                            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">📄 {paper['title']}</span>
+                                            <span class="badge" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); margin-bottom: 0px; font-size: 0.70rem; padding: 2px 6px;">ID: {paper['arxiv_id']}</span>
+                                        </div>
+                                        <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 6px;">
+                                            👥 <b>作者：</b>{paper['authors']} | 📅 <b>發表日期：</b>{paper['published']}
+                                        </div>
+                                        <div style="font-size: 0.85rem; color: #cbd5e1; background: rgba(15, 23, 42, 0.45); padding: 10px; border-radius: 6px; font-family: monospace; line-height: 1.4; border-left: 3px solid #10b981;">
+                                            <b>英文摘要：</b>{paper['summary']}
+                                        </div>
+                                        <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+                                            <a href="{paper['pdf_url']}" target="_blank" style="text-decoration: none; background: rgba(6, 182, 212, 0.12); color: #06b6d4; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; border: 1px solid rgba(6, 182, 212, 0.25); font-weight: 600;">🔗 下載 PDF</a>
+                                        </div>
+                                    </div>
+                                    """
+                                    sources_html_list.append(block_html)
+                                    
+                            answer_content = response["answer"]
+                            plain_answer = response["answer"]
+                            
                         else:
-                            st.info("🔍 在高維語意空間中未發現匹配的文獻切塊，拒絕生成以免產生幻覺。")
+                            # 傳統本地 RAG 模式
+                            retrieved_chunks = vector_manager.semantic_search(qa_query, k=qa_k_val)
+                            
+                            if retrieved_chunks:
+                                cited_answer = rag_generator.generate_answer(qa_query, retrieved_chunks, chat_history=st.session_state.chat_history[:-1])
+                                answer_content = cited_answer
+                                plain_answer = cited_answer
+                                
+                                for idx, (doc, score) in enumerate(retrieved_chunks, 1):
+                                    source_name = doc.metadata.get("source", "未知文獻")
+                                    page_num = doc.metadata.get("page", "?")
+                                    total_pages = doc.metadata.get("total_pages", "?")
+                                    chunk_idx = doc.metadata.get("chunk_index", "?")
+                                    
+                                    block_html = f"""
+                                    <div style="background-color: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #38bdf8; margin-bottom: 5px;">
+                                            <span><b>來源 #{idx}：</b><code>{source_name}</code> (第 {page_num} 頁 / 共 {total_pages} 頁)</span>
+                                            <span>L2 距離：<code>{score:.4f}</code> | 切塊索引：#{chunk_idx}</span>
+                                        </div>
+                                        <div style="font-size: 0.9rem; color: #94a3b8; font-family: monospace; white-space: pre-wrap; background-color: rgba(0,0,0,0.15); padding: 8px; border-radius: 4px;">
+                                            {doc.page_content.strip()}
+                                        </div>
+                                    </div>
+                                    """
+                                    sources_html_list.append(block_html)
+                            else:
+                                answer_content = (
+                                    "抱歉，根據目前已向量化的文獻庫，未發現與您的問題直接相關的研究數據或學術結論。\n"
+                                    "💡 **建議**：請先前往「上傳文獻區」上傳包含該主題的 PDF 論文，並點擊「向量化本地文獻庫」以利系統檢索。"
+                                )
+                                plain_answer = answer_content
+                                
+                        formatted_answer_html = f"""
+                        <div class="glass-card" style="border-left: 6px solid #06b6d4; background-color: rgba(15, 23, 42, 0.45); padding: 20px; margin-bottom: 10px;">
+                            <div style="font-size: 1.05rem; line-height: 1.8; color: #f8fafc; white-space: pre-wrap;">
+                                {answer_content}
+                            </div>
+                        </div>
+                        """
+                        
+                        placeholder.markdown(formatted_answer_html, unsafe_allow_html=True)
+                        
+                        if thinking_html:
+                            with st.expander("🤖 檢視路由決策歷程 (Thinking Process)", expanded=False):
+                                st.markdown(thinking_html, unsafe_allow_html=True)
+                        if sources_html_list:
+                            with st.expander("🔍 檢視本次回答參考之學術文獻來源與切塊", expanded=False):
+                                for s_html in sources_html_list:
+                                    st.markdown(s_html, unsafe_allow_html=True)
+                                    
+                        st.session_state.chat_history.append({
+                            "role": "assistant",
+                            "content": formatted_answer_html,
+                            "plain_answer": plain_answer,
+                            "thinking": thinking_html,
+                            "sources": sources_html_list
+                        })
+                        st.rerun()
+                        
+                    except Exception as e:
+                        placeholder.empty()
+                        st.error(f"❌ 生成回答失敗: {e}")
+                        logger.error(f"生成回答失敗: {e}")
+                        
+            # 5. PDF 一鍵下載報告 (Option C 優化 - 預設下載 PDF)
+            if st.session_state.chat_history:
+                st.markdown("---")
+                st.markdown("#### 📥 匯出完整對話紀錄為 PDF 報告")
+                st.caption("您可以一鍵下載包含所有引用標記與參考切塊的標準 A4 PDF 學術報告。")
+                
+                try:
+                    from src.utils.pdf_generator import generate_qa_pdf
+                    pdf_bytes = generate_qa_pdf(st.session_state.chat_history)
+                    
+                    st.download_button(
+                        label="📥 下載完整學術問答報告 (.pdf)",
+                        data=pdf_bytes,
+                        file_name="literature_review_qa_report.pdf",
+                        mime="application/pdf",
+                        key="download_qa_report_pdf_btn",
+                        use_container_width=True
+                    )
+                except Exception as pdf_err:
+                    st.error(f"❌ PDF 生成失敗: {pdf_err}")
 
     # ==========================================
     # Tab 4: 跨文獻比較矩陣 (Week 6 核心整合)
@@ -720,7 +915,9 @@ with col_main:
         # 1. 檢查是否有足夠的 PDF 論文
         existing_pdfs = list(DATA_DIR.glob("*.pdf"))
         
-        if not vector_manager or vector_manager.get_collection_count() == 0:
+        if not gemini_api_key:
+            st.info("👉 請在左側「專案控制台」輸入您的 **Gemini API Key** 以啟用跨文獻比較功能。")
+        elif not vector_manager or vector_manager.get_collection_count() == 0:
             st.warning("⚠️ 比較系統不可用：向量庫目前沒有資料！請先完成論文上傳，並在側邊欄點擊「🔄 向量化本地文獻庫」。")
         elif len(existing_pdfs) < 2:
             st.info("💡 跨文獻交叉比較需要至少 **2 篇** 以上的已向量化文獻。目前檢測到本地文獻庫中只有 1 篇文獻，請先前往第一分頁上傳更多文獻並點擊向量化。")
@@ -755,6 +952,10 @@ with col_main:
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
+                    # 顯示比較脈動骨架屏 (Option E)
+                    skeleton_placeholder = st.empty()
+                    skeleton_placeholder.markdown(render_skeleton_screen("comparison"), unsafe_allow_html=True)
+                    
                     try:
                         comparison_data = []
                         total_pdfs = len(selected_pdfs)
@@ -779,6 +980,7 @@ with col_main:
                         
                         status_text.empty()
                         progress_bar.empty()
+                        skeleton_placeholder.empty()
                         st.success("🎉 跨文獻比較矩陣生成成功！已安全緩存特徵。")
                         st.balloons()
                         
@@ -813,24 +1015,30 @@ with col_main:
                 # 渲染為 Streamlit 表格
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
                 
-                # 4. 提供 Markdown 表格下載功能
+                # 4. 提供 PDF 報告與 Markdown 表格下載功能 (預設下載 PDF)
                 st.markdown("---")
                 st.markdown("#### 📥 匯出學術比較報告")
-                st.caption("您可以一鍵複製或下載標準學術 Markdown 格式的比較表格，直接貼入您的期末報告中。")
+                st.caption("您可以一鍵下載包含所有文獻比較資料的標準 A4 PDF 報告。底下的 Markdown 表格代碼可供您複製貼上。")
                 
+                try:
+                    from src.utils.pdf_generator import generate_comparison_pdf
+                    pdf_bytes = generate_comparison_pdf(data)
+                    
+                    st.download_button(
+                        label="📥 下載學術比較報告 (.pdf)",
+                        data=pdf_bytes,
+                        file_name="literature_comparison_report.pdf",
+                        mime="application/pdf",
+                        key="download_pdf_btn",
+                        use_container_width=True
+                    )
+                except Exception as pdf_err:
+                    st.error(f"❌ PDF 生成失敗: {pdf_err}")
+                
+                # 同時依然保留 Markdown 表格預覽，方便學生複製
+                st.markdown("##### 📄 複製 Markdown 格式表格")
                 md_table = comparison_manager.convert_to_markdown_table(data)
-                
-                # 顯示 Markdown
                 st.code(md_table, language="markdown")
-                
-                # 提供下載
-                st.download_button(
-                    label="📥 下載 Markdown 表格檔案",
-                    data=md_table,
-                    file_name="literature_comparison_matrix.md",
-                    mime="text/markdown",
-                    key="download_md_btn"
-                )
 
 # 系統底部狀態資訊
 st.markdown("---")

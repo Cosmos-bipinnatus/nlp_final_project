@@ -168,8 +168,8 @@ class ArXivSearchTool:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
-            
-            response = self.llm.invoke(messages)
+            from src.utils.retry_handler import retry_on_429
+            response = retry_on_429(self.llm.invoke, messages)
             logger.info("Gemini 繁體中文文獻編譯完成！")
             
             return {

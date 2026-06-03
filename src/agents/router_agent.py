@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import logging
-from typing import Literal, Dict, Any
+from typing import Literal, Dict, Any, List
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -83,12 +83,13 @@ class AcademicRouterAgent:
         self.local_tool = LocalSearchTool(persist_directory=self.persist_directory)
         self.arxiv_tool = ArXivSearchTool(model_name=self.model_name)
 
-    def make_decision(self, query: str) -> RouterDecision:
+    def make_decision(self, query: str, chat_history: List[dict] = None) -> RouterDecision:
         """
-        分析學生問題，進行語意分類並回傳結構化決策。
+        分析學生問題與對話歷史，進行語意分類並回傳結構化決策。
         
         Args:
             query (str): 學生的原始提問
+            chat_history (List[dict]): 近期學術對話歷史
             
         Returns:
             RouterDecision: 路由決策模型執行個體
@@ -111,7 +112,20 @@ class AcademicRouterAgent:
             "請嚴格回傳符合 RouterDecision 格式的結構化 JSON。"
         )
         
-        user_prompt = f"學生提問：{query}\n\n請根據判定準則，做出你的路由決策與檢索關鍵字最佳化，並給出你的繁體中文決策理由："
+        # 將對話歷史融入 Prompt 以提供代理決策上下文
+        history_str = ""
+        if chat_history:
+            history_str = "【近期學術對話歷史紀錄】\n"
+            for msg in chat_history[-3:]: # 僅使用最近 3 輪對話以節省 Token
+                role = "學生" if msg.get("role") == "user" else "AI導師"
+                content = msg.get("plain_answer") or msg.get("content")
+                # 簡單清理 HTML 標籤
+                import re
+                clean_content = re.sub(r'<[^>]+>', '', content)
+                history_str += f"{role}: {clean_content}\n"
+            history_str += "\n"
+            
+        user_prompt = f"{history_str}學生新提問：{query}\n\n請根據判定準則，做出你的路由決策與檢檢索關鍵字最佳化，並給出你的繁體中文決策理由："
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -119,7 +133,8 @@ class AcademicRouterAgent:
         ]
         
         try:
-            decision = self.structured_llm.invoke(messages)
+            from src.utils.retry_handler import retry_on_429
+            decision = retry_on_429(self.structured_llm.invoke, messages)
             logger.info(
                 f"[RouterAgent] 決策完成！路由選擇: '{decision.chosen_route}' | "
                 f"英文檢索字: '{decision.search_query}' | "
@@ -135,24 +150,25 @@ class AcademicRouterAgent:
                 rationale=f"因系統決策模組異常 ({e})，安全回退至本地檢索模式。"
             )
 
-    def route_and_execute(self, query: str) -> Dict[str, Any]:
+    def route_and_execute(self, query: str, chat_history: List[dict] = None) -> Dict[str, Any]:
         """
         進行路由決策，並直接分發、調用相應工具執行。
         
         Args:
             query (str): 學生的原始提問
+            chat_history (List[dict]): 對話歷史紀錄
             
         Returns:
             Dict[str, Any]: 整合了代理決策歷程與工具執行結果的 JSON
         """
         # 1. 做出路由決策
-        decision = self.make_decision(query)
+        decision = self.make_decision(query, chat_history=chat_history)
         
         # 2. 根據決策分發執行
         try:
             if decision.chosen_route == "local":
                 logger.info("[RouterAgent] 決策選擇本地 RAG，開始執行 LocalSearchTool...")
-                tool_output = self.local_tool.run(query)
+                tool_output = self.local_tool.run(query, chat_history=chat_history)
                 return {
                     "route": "local",
                     "search_query": decision.search_query,
