@@ -500,14 +500,17 @@ with st.sidebar:
                         except Exception as e:
                             st.error(f"❌ 刪除失敗: {e}")
             
-        # --- 5. 向量引擎控制按鈕 ---
-        st.markdown("---")
-        st.markdown("#### ⚡ 向量引擎控制")
-        
-        # 向量化本地庫按鈕
-        if vector_manager:
-            st.markdown('<div class="vectorize-btn">', unsafe_allow_html=True)
-            if st.button("🔄 向量化本地文獻庫", key="btn_vectorize", use_container_width=True):
+    # --- 5. 向量引擎控制按鈕 (移至 if len(existing_pdfs) > 0 之外，不論文獻庫是否為空皆顯示) ---
+    st.markdown("---")
+    st.markdown("#### ⚡ 向量引擎控制")
+    
+    # 向量化本地庫按鈕
+    if vector_manager:
+        st.markdown('<div class="vectorize-btn">', unsafe_allow_html=True)
+        if st.button("🔄 向量化本地文獻庫", key="btn_vectorize", use_container_width=True):
+            if not existing_pdfs:
+                st.warning("⚠️ 目前本地文獻目錄 `data/` 中沒有任何 PDF 檔案！請先前往「📥 論文上傳與存檔」分頁上傳論文。")
+            else:
                 # 建立多層 Loading 動畫
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -549,18 +552,18 @@ with st.sidebar:
                     status_text.empty()
                     st.error(f"❌ 向量化失敗: {e}")
                     logger.error(f"向量化失敗: {e}")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            # 清空資料庫按鈕
-            st.markdown('<div class="clear-btn">', unsafe_allow_html=True)
-            if st.button("🗑️ 清空向量資料庫", key="btn_clear", use_container_width=True):
-                try:
-                    vector_manager.clear_database()
-                    st.success("🧹 向量庫已清空！")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"清空失敗: {e}")
-            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 清空資料庫按鈕
+        st.markdown('<div class="clear-btn">', unsafe_allow_html=True)
+        if st.button("🗑️ 清空向量資料庫", key="btn_clear", use_container_width=True):
+            try:
+                vector_manager.clear_database()
+                st.success("🧹 向量庫已清空！")
+                st.rerun()
+            except Exception as e:
+                st.error(f"清空失敗: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # 主面板 layout
 col_main, col_spacer = st.columns([12, 1])
