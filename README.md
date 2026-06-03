@@ -3,6 +3,11 @@
 > **代理型檢索增強生成系統 (Agentic RAG System)**
 > 大二資工系期末專題 — 基於 Google Gemini 2.5-Flash 與雙欄排版還原的學術文獻 RAG 系統
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://nlpfinalproject.streamlit.app/)
+
+**🌐 雲端線上演示版：** [https://nlpfinalproject.streamlit.app/](https://nlpfinalproject.streamlit.app/)
+*(進入網頁後，於側邊欄「專案控制台」手動輸入您的 Gemini API Key 即可立刻開始體驗)*
+
 ---
 
 ## 📋 專案簡介
@@ -113,24 +118,9 @@ uv sync
 
 > 💡 此指令會根據 `uv.lock` 精確還原所有套件版本，確保團隊成員的環境完全一致。
 
-### Step 4：設定 Gemini API Key
+### Step 4：取得 Gemini API Key
 
-```bash
-# 複製環境變數範本
-# Windows (PowerShell)
-Copy-Item .env.example .env
-
-# macOS / Linux
-cp .env.example .env
-```
-
-接著用任意文字編輯器開啟 `.env`，將 `your_gemini_api_key_here` 替換為您在 [Google AI Studio](https://aistudio.google.com/apikey) 取得的實際 API Key：
-
-```env
-GEMINI_API_KEY=AIzaSy...你的實際金鑰...
-```
-
-> ⚠️ **重要**：`.env` 檔案已被 `.gitignore` 排除，**不會被推送到 Git**，您的金鑰是安全的。
+本系統已全面重構為「介面端手動輸入金鑰」，因此您不需要在本機配置任何 `.env` 檔案或設定系統環境變數！您只需造訪 [Google AI Studio](https://aistudio.google.com/apikey) 免費申請一個 Gemini API Key，並在啟動 Web UI 後，直接於網頁左側的「專案控制台」中輸入即可啟動服務。這使本系統非常安全且適合線上共享部署。
 
 ### Step 5：建立必要的資料夾
 
@@ -170,13 +160,14 @@ Streamlit 會自動在瀏覽器開啟 `http://localhost:8501`，即可開始使�
 
 - **本地 RAG 模式**：直接根據已上傳的本地文獻進行問答，答案附帶句子級引用標記。
 - **AI 路由代理模式**（勾選開關）：AI 會自主決策路由至本地 RAG 或 ArXiv 線上搜尋，並展示完整的思考歷程面板。
+- **PDF 報告匯出**：可一鍵下載為標準 A4 格式的 PDF 報告檔案（預設下載格式）。
 
 ### 📊 Tab 4：跨文獻比較矩陣
 
 1. 選擇至少兩篇已向量化的論文。
 2. 點擊 **「📊 啟動跨文獻特徵提取與矩陣生成」**。
 3. 系統會使用 Pydantic 結構化提取，自動生成核心方法、資料集、優缺點的對照表格。
-4. 點擊 **「📥 下載 Markdown 表格檔案」** 即可匯出為學術報告格式。
+4. 點擊 **「📥 下載學術比較報告 (.pdf)」** 即可匯出為標準 A4 PDF 報告，底下亦附有 Markdown 表格代碼方便快速複製。
 
 ---
 
@@ -249,7 +240,7 @@ graph TD
     
     User3([選擇多篇論文]) --> CompManager[比較矩陣管理員<br>PaperFeatures 結構化提取]
     CompManager --> ChromaDB
-    CompManager --> CompTable([交叉比較表格 + Markdown 下載])
+    CompManager --> CompTable([交叉比較表格 + PDF 報告下載])
 ```
 
 ---
@@ -264,6 +255,28 @@ graph TD
 | Week 4 | RAG 管線 (問答生成、引用標記追蹤) | ✅ 完成 |
 | Week 5 | 代理與工具 (Pydantic 路由、ArXiv 搜尋) | ✅ 完成 |
 | Week 6 | 評估與整合 (比較矩陣、系統打磨) | ✅ 完成 |
+
+---
+
+## 🌐 雲端線上部署 (Cloud Deployment)
+
+本專案已成功自動化部署於 **Streamlit Community Cloud**！
+*   **線上體驗網址**：[https://nlpfinalproject.streamlit.app/](https://nlpfinalproject.streamlit.app/)
+*   **使用方式**：造訪網頁後，請在左側側邊欄的控制台輸入您在 Google AI Studio 申請的 `Gemini API Key`（系統採用加密密碼輸入且僅儲存於本機瀏覽器會話中，非常安全），即可開始進行論文上傳、語意相似檢索、多輪問答代理路由與比較矩陣導出。
+
+> 💡 **離線預建置向量庫**：為確保雲端網頁一開啟就能直接進行 Demo，我們在本機預先將 BERT 與 Transformer 等經典論文進行了解析與向量化，並將 `vectorstore/` 的 SQLite 索引目錄直接提交到了 GitHub 中。這使得線上環境擁有「隨開即用」的唯讀向量索引，解決了免費雲端容器重啟後本機資料庫被清空的痛點。
+
+---
+
+## 🌟 最終產品級優化與新增功能
+
+本系統已超越一般的 MVP 原型，完成了五大產品級功能擴充與體驗打磨：
+
+1.  **Gemini API 429 限流指數退避重試** (Option B)：在遭遇免費層 API 的 20 RPM 限制時，自動進行多達 5 次退避重試，並在 Streamlit 前端渲染出倒數黃色警告提示，大幅提升 Demo 期間的系統魯棒性。
+2.  **狀態感應增量向量化與單篇刪除** (Option D)：側邊欄論文列表實時比對，以狀態燈號（🟢 已向量化 / ⚪ 未向量化）顯示狀態。支援單篇論文增量寫入與物理/向量刪除，並自動連動更新快取。
+3.  **多輪對話歷史氣泡 UI** (Option A)：Tab 3 問答區重構成為對話氣泡 UI，支援多輪追問。結合最近 5 輪對話，使 AI 能精確理解包含代名詞的上下文（例如 "How does it work?" 中的 "it"）。
+4.  **免字型依賴之繁體中文 A4 PDF 一鍵匯出** (Option C)：將 Tab 3 QA 問答歷史與 Tab 4 比較結果一鍵匯出升級為標準 A4 格式 PDF。利用 PyMuPDF 內嵌 CJK 字型 `"china-t"`，雲端部署亦無需上傳任何字型檔且完全不亂碼。
+5.  **脈動骨架屏加載動畫** (Option E)：在 Tab 2、Tab 3 與 Tab 4 的長時間 API 等待階段，以閃爍脈動的卡片骨架屏 (Skeleton Screen) 代替單調的 loading 圈圈，大幅提升視覺高質感。
 
 ---
 
