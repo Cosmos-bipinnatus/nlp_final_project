@@ -65,6 +65,7 @@ class AcademicVectorManager:
     def store_documents(self, documents: List[Document]) -> None:
         """
         將切塊後的 LangChain Document 轉換為向量並存入本地 ChromaDB 中。
+        採用分批寫入 (Batching) 與指數退避重試機制，以避免 Gemini Embeddings API 的 429 速率限制錯誤。
         
         Args:
             documents (List[Document]): 待存入的切塊 Document 物件清單
@@ -74,17 +75,33 @@ class AcademicVectorManager:
             return
             
         logger.info(f"準備向量化並儲存 {len(documents)} 個切塊到 ChromaDB...")
+        
+        from src.utils.retry_handler import retry_on_429
+        
+        # 設定每批次寫入的數量，避免單次 API 請求的 Payload 過大而觸發 rate limit
+        batch_size = 15
+        total_chunks = len(documents)
+        
         try:
-            # add_documents 會自動調用 embedding_function 對文本進行批次化向量轉換，並儲存至 SQLite+Parquet 本地儲存中
-            self.vector_db.add_documents(documents)
-            logger.info("ChromaDB 寫入成功！數據已持久化儲存。")
+            for i in range(0, total_chunks, batch_size):
+                batch = documents[i : i + batch_size]
+                batch_num = i // batch_size + 1
+                total_batches = (total_chunks + batch_size - 1) // batch_size
+                
+                logger.info(f"正在向量化寫入第 {batch_num}/{total_batches} 批，共 {len(batch)} 個切塊...")
+                
+                # 使用 retry_on_429 包裝 add_documents 呼叫，若遇到限流會自動等待重試
+                retry_on_429(self.vector_db.add_documents, batch)
+                
+            logger.info("ChromaDB 所有批次寫入成功！數據已持久化儲存。")
         except Exception as e:
-            logger.error(f"ChromaDB 寫入失敗: {e}")
+            logger.error(f"ChromaDB 批次寫入失敗: {e}")
             raise e
 
     def semantic_search(self, query: str, k: int = 4) -> List[Tuple[Document, float]]:
         """
         進行語意相似度檢索。
+        採用指數退避重試機制，防止檢索時因高頻率發送 Embedding 請求而觸發 429 限流。
         
         Args:
             query (str): 使用者的提問（如 'What is Multi-Head Attention?'）
@@ -96,9 +113,13 @@ class AcademicVectorManager:
             分數越小代表向量距離越近，也就是語意相似度越高！
         """
         logger.info(f"開始進行語意檢索，查詢: '{query}' | 召回數 k={k}")
+        
+        from src.utils.retry_handler import retry_on_429
+        
         try:
             # similarity_search_with_score 會回傳 (Document, L2_distance_score)
-            results = self.vector_db.similarity_search_with_score(query, k=k)
+            # 使用 retry_on_429 包裝檢索動作，因為檢索同樣會把 query 轉換為 embedding
+            results = retry_on_429(self.vector_db.similarity_search_with_score, query, k=k)
             logger.info(f"語意檢索完成，共召回 {len(results)} 個切塊。")
             return results
         except Exception as e:
