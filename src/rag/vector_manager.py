@@ -45,7 +45,16 @@ class AcademicVectorManager:
                 model=EMBEDDING_MODEL,
                 google_api_key=api_key
             )
-            logger.info(f"成功初始化 Google Gemini Embeddings 模型 ({EMBEDDING_MODEL})。")
+            
+            # Monkey Patch: 修正 gemini-embedding-2-preview 模型在 batch 呼叫時的 list index out of range 錯誤
+            # 利用 list comprehension 將每個文本切塊單獨經由 embed_query 轉換，完美繞過 langchain-google-genai 套件內部批次封裝的 bug
+            def safe_embed_documents(texts: List[str]) -> List[List[float]]:
+                logger.info(f"[Patch] 正在使用安全串流方式向量化 {len(texts)} 個切塊...")
+                return [self.embeddings.embed_query(t) for t in texts]
+                
+            self.embeddings.embed_documents = safe_embed_documents
+            
+            logger.info(f"成功初始化 Google Gemini Embeddings 模型 ({EMBEDDING_MODEL}) 並完成安全 Patch。")
         except Exception as e:
             logger.error(f"初始化 Gemini Embeddings 時發生異常: {e}")
             raise e
