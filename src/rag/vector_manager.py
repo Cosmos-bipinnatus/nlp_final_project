@@ -14,6 +14,18 @@ load_dotenv()
 # 設定日誌記錄
 logger = get_logger(__name__)
 
+class PatchedGoogleGenerativeAIEmbeddings(GoogleGenerativeAIEmbeddings):
+    """
+    修補後的 Google Gemini Embeddings 類別。
+    
+    原因：Pydantic v2 會嚴格驗證屬性賦值，直接在實例上動態綁定方法會拋出 "no field 'embed_documents'" 的錯誤。
+    解決方案：利用類別繼承重寫 `embed_documents` 方法，透過 List Comprehension 逐一調用單一轉換的 `embed_query`，
+    徹底避開官方 SDK 在 batch 向量化時將列表摺疊為單一 Content 產生的 list index 越界 bug。
+    """
+    def embed_documents(self, texts: List[str], **kwargs) -> List[List[float]]:
+        logger.info(f"[Patch] 正在使用安全串流方式向量化 {len(texts)} 個切塊...")
+        return [self.embed_query(t) for t in texts]
+
 class AcademicVectorManager:
     """
     學術論文向量資料庫管理員。
@@ -39,22 +51,12 @@ class AcademicVectorManager:
             raise ValueError("GEMINI_API_KEY 未正確載入，請檢查根目錄的 .env 檔案。")
             
         # 2. 初始化 Google Gemini Embeddings 模型
-        # 指定底層向量化模型（當前使用 models/gemini-embedding-001，輸出 768 維語意向量）
         try:
-            self.embeddings = GoogleGenerativeAIEmbeddings(
+            self.embeddings = PatchedGoogleGenerativeAIEmbeddings(
                 model=EMBEDDING_MODEL,
                 google_api_key=api_key
             )
-            
-            # Monkey Patch: 修正 gemini-embedding-2-preview 模型在 batch 呼叫時的 list index out of range 錯誤
-            # 利用 list comprehension 將每個文本切塊單獨經由 embed_query 轉換，完美繞過 langchain-google-genai 套件內部批次封裝的 bug
-            def safe_embed_documents(texts: List[str]) -> List[List[float]]:
-                logger.info(f"[Patch] 正在使用安全串流方式向量化 {len(texts)} 個切塊...")
-                return [self.embeddings.embed_query(t) for t in texts]
-                
-            self.embeddings.embed_documents = safe_embed_documents
-            
-            logger.info(f"成功初始化 Google Gemini Embeddings 模型 ({EMBEDDING_MODEL}) 並完成安全 Patch。")
+            logger.info(f"成功初始化 Patched Google Gemini Embeddings 模型 ({EMBEDDING_MODEL})。")
         except Exception as e:
             logger.error(f"初始化 Gemini Embeddings 時發生異常: {e}")
             raise e
