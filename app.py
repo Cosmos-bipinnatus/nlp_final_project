@@ -11,7 +11,7 @@ from src.rag.vector_manager import AcademicVectorManager
 from src.rag.generator import AcademicRAGGenerator
 from src.agents.router_agent import AcademicRouterAgent
 from src.rag.comparison_manager import AcademicComparisonManager
-from src.config import DATA_DIR, VECTORSTORE_DIR, CHUNK_SIZE, CHUNK_OVERLAP
+from src.config import DATA_DIR, VECTORSTORE_DIR, CHUNK_SIZE, CHUNK_OVERLAP, MODEL_NAME, EMBEDDING_MODEL
 from src.ui import render_styles, render_hero_banner
 
 
@@ -52,25 +52,25 @@ render_styles()
 # ==========================================
 
 @st.cache_resource
-def init_vector_manager(api_key: str):
+def init_vector_manager(api_key: str, embedding_model: str):
     """快取初始化向量管理員（Embeddings + ChromaDB 連線）"""
     os.environ["GEMINI_API_KEY"] = api_key
     return AcademicVectorManager(persist_directory=VECTORSTORE_DIR)
 
 @st.cache_resource
-def init_rag_generator(api_key: str):
+def init_rag_generator(api_key: str, model_name: str):
     """快取初始化 RAG 生成器（Gemini 2.5-Flash LLM）"""
     os.environ["GEMINI_API_KEY"] = api_key
     return AcademicRAGGenerator()
 
 @st.cache_resource
-def init_academic_agent(api_key: str):
+def init_academic_agent(api_key: str, model_name: str):
     """快取初始化學術路由代理（Router Agent + Local/ArXiv 工具）"""
     os.environ["GEMINI_API_KEY"] = api_key
     return AcademicRouterAgent(persist_directory=str(VECTORSTORE_DIR))
 
 @st.cache_resource
-def init_comparison_manager(api_key: str, _vector_manager=None):
+def init_comparison_manager(api_key: str, model_name: str, _vector_manager=None):
     """快取初始化跨文獻比較管理員（Pydantic 結構化特徵提取引擎）"""
     os.environ["GEMINI_API_KEY"] = api_key
     return AcademicComparisonManager(persist_directory=str(VECTORSTORE_DIR), vector_manager=_vector_manager)
@@ -106,25 +106,25 @@ comparison_error_msg = ""
 if gemini_api_key:
     os.environ["GEMINI_API_KEY"] = gemini_api_key
     try:
-        vector_manager = init_vector_manager(gemini_api_key)
+        vector_manager = init_vector_manager(gemini_api_key, EMBEDDING_MODEL)
     except Exception as e:
         db_error_msg = str(e)
         logger.error(f"Streamlit 初始化向量資料庫失敗: {e}")
 
     try:
-        rag_generator = init_rag_generator(gemini_api_key)
+        rag_generator = init_rag_generator(gemini_api_key, MODEL_NAME)
     except Exception as e:
         rag_error_msg = str(e)
         logger.error(f"Streamlit 初始化 RAG 生成器失敗: {e}")
 
     try:
-        academic_agent = init_academic_agent(gemini_api_key)
+        academic_agent = init_academic_agent(gemini_api_key, MODEL_NAME)
     except Exception as e:
         agent_error_msg = str(e)
         logger.error(f"Streamlit 初始化學術路由代理失敗: {e}")
 
     try:
-        comparison_manager = init_comparison_manager(gemini_api_key, _vector_manager=vector_manager)
+        comparison_manager = init_comparison_manager(gemini_api_key, MODEL_NAME, _vector_manager=vector_manager)
     except Exception as e:
         comparison_error_msg = str(e)
         logger.error(f"Streamlit 初始化比較管理員失敗: {e}")
