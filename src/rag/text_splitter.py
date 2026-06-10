@@ -111,7 +111,7 @@ if __name__ == "__main__":
                 "Our proposed architecture consists of three core components: an ingest pipeline, a vectorstore "
                 "retriever, and a generation agent. The ingest pipeline reads PDFs, splits texts, and "
                 "stores embeddings in ChromaDB.\n\n"
-                "We use Google's text-embedding-004 model to convert text chunks into dense vectors. "
+                "We use Google's gemini-embedding-2-preview model to convert text chunks into dense vectors. "
                 "These vectors are then queried at runtime to retrieve relevant context segments."
             ),
             "metadata": {"source": "mock_paper.pdf", "page": 2, "total_pages": 2}

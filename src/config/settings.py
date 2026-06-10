@@ -34,8 +34,8 @@ VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_NAME: str = "gemini-2.5-flash"
 
 # 預設使用的 Embedding 向量模型
-# 註：已升級為 gemini-embedding-2 (models/text-embedding-004)，輸出 3072 維語意向量
-EMBEDDING_MODEL: str = "models/text-embedding-004"
+# 註：已升級為 gemini-embedding-2 (models/gemini-embedding-2-preview)，輸出 3072 維語意向量
+EMBEDDING_MODEL: str = "models/gemini-embedding-2-preview"
 
 # 4. RAG & 文本切塊配置
 # 每個文字切塊的最大字數（字元數）

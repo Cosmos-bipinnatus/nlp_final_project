@@ -16,7 +16,7 @@
 
 1. **雙欄排版還原**：精確處理學術論文常見的雙欄 (Double-column) 排版，避免文字閱讀順序錯亂。
 2. **啟發式元數據提取**：在 PDF 上傳時，自動識別並提取論文的 **標題 (Title)、作者 (Author) 及 摘要 (Abstract)**，將其整合至 Chunk Metadata 中。
-3. **語意切塊與向量化**：將論文拆分為語意連貫的文本切塊，並使用 Google Gemini 的 `models/text-embedding-004` 轉為 3072 維語意向量，持久化儲存於本地 ChromaDB。
+3. **語意切塊與向量化**：將論文拆分為語意連貫的文本切塊，並使用 Google Gemini 的 `models/gemini-embedding-2-preview` 轉為 3072 維語意向量，持久化儲存於本地 ChromaDB。
 4. **AI 學術問答與精確引用**：以 RAG (檢索增強生成) 技術，根據檢索到的原始文獻段落生成學術分析，每句關鍵結論皆附帶精確的引用標記，如 `[論文名.pdf, p.5]`。
 5. **智慧路由代理 (Router Agent)**：AI 自動分析使用者提問的語意，決定路由至「本地文獻庫 (RAG)」、「外接 ArXiv 線上學術庫 (API)」，或是「混合檢索融合 (Blended Search)」，並在網頁上完整展示其思考歷程與決策原因。
 6. **跨文獻比較矩陣 (Comparison Grid)**：自動從多篇論文中提煉核心方法、實驗資料集、優缺點，生成結構化的交叉比較表格，支援一鍵下載為 A4 PDF 報告。
@@ -31,7 +31,7 @@
 | 核心語言 | `Python 3.11` | 專案指定版本 |
 | 套件管理 | `uv` | 極速 Python 套件管理器，取代 pip/pipenv |
 | LLM 框架 | `LangChain` | 模組化的 LLM 應用開發框架 |
-| 模型 API | `Google Gemini API` | 使用 `gemini-2.5-flash`（生成）與 `models/text-embedding-004`（3072維嵌入） |
+| 模型 API | `Google Gemini API` | 使用 `gemini-2.5-flash`（生成）與 `models/gemini-embedding-2-preview`（3072維嵌入） |
 | LLM 整合 | `langchain-google-genai` | LangChain 與 Gemini 的官方整合套件 |
 | 結構化驗證 | `Pydantic v2` | 用於 LLM `with_structured_output` 結構化路由與特徵提取 |
 | PDF 解析 | `PyMuPDF (fitz)` | 處理複雜雙欄排版與提取頁碼 Metadata |
@@ -235,7 +235,7 @@ uv run python tests/test_comparison.py
 | 模型 | 限制 | 說明 |
 |:---|:---|:---|
 | `gemini-2.5-flash` | 20 RPM | 每分鐘最多 20 次生成請求 |
-| `models/text-embedding-004` | 1,500 RPM | 每分鐘最多 1,500 次嵌入請求 |
+| `models/gemini-embedding-2-preview` | 1,500 RPM | 每分鐘最多 1,500 次嵌入請求 |
 
 ### 應對策略
 
@@ -252,7 +252,7 @@ uv run python tests/test_comparison.py
 graph TD
     User([使用者上傳 PDF]) --> Parser[雙欄 PDF 解析器<br>PyMuPDF + 啟發式元數據提取]
     Parser --> Splitter[語意文本切塊器<br>RecursiveCharacterTextSplitter]
-    Splitter --> Embeddings[Gemini Embeddings<br>models/text-embedding-004]
+    Splitter --> Embeddings[Gemini Embeddings<br>models/gemini-embedding-2-preview]
     Embeddings --> IngestionGuard{ChromaDB 寫入<br>Ingestion Guard 防重入}
     IngestionGuard -->|清空舊 Chunk| ChromaDB[(ChromaDB<br>本地持久化向量庫)]
     
@@ -314,7 +314,7 @@ graph TD
 5. **脈動骨架屏加載動畫**：在 Tab 2、Tab 3、Tab 4 與 Tab 5 的長時間 API 等待階段，以閃爍脈動的卡片骨架屏 (Skeleton Screen) 代替單調的 loading 圈圈，大幅提升視覺高質感。
 6. **重複文獻防重入與自動覆蓋 (Ingestion Guard)**：重寫 `store_documents`，在寫入新論文前會自動比對並清空 ChromaDB 中舊有的同名 Chunk 向量，保證資料乾淨性。
 7. **啟發式學術元數據提取 (Heuristic Metadata Extraction)**：擴充 PyMuPDF 解析管道，利用正則與字體大小啟發式演算法自動提取學術 PDF 的 標題 (Title)、作者 (Author) 及 摘要 (Abstract) 等，並存為 metadata。
-8. **向量庫維度不符自癒機制 (Vector Dim Self-Healing)**：在升級嵌入模型至 `models/text-embedding-004` (3072維) 時，若資料庫檢測到既有向量維度不符 (768維)，會自動執行重置與重建，避免系統拋出維度不符異常而崩潰。
+8. **向量庫維度不符自癒機制 (Vector Dim Self-Healing)**：在升級嵌入模型至 `models/gemini-embedding-2-preview` (3072維) 時，若資料庫檢測到既有向量維度不符 (768維)，會自動執行重置與重建，避免系統拋出維度不符異常而崩潰。
 9. **代理人混合路由與檢索融合 (Hybrid Routing & Blended Search)**：Routing Agent 支持 `both` 融合決策，並行查本地庫與 ArXiv，融合生成最新的綜述回答。
 10. **全域中央配置與日誌重構**：提取全域設定至 `src/config/settings.py`，並建立了統一的 `logger.py` 日誌記錄系統，實踐標準軟體工程規範。
 

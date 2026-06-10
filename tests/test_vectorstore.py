@@ -42,7 +42,7 @@ def test_vectorstore_pipeline():
         
         # 5. 向量化並儲存文獻切塊
         print("\n--- Step 5: Vectorizing and Indexing Chunks (Uploading to Gemini Embeddings) ---")
-        # 這會調用 Gemini text-embedding-004 API，需要點時間
+        # 這會調用 Gemini gemini-embedding-2-preview API，需要點時間
         vector_manager.store_documents(chunks)
         print(f"[Success] Persistent store complete. DB Count: {vector_manager.get_collection_count()} chunks.")
         
