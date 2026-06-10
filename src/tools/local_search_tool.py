@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-import logging
 from typing import Dict, Any, List
 from src.rag.vector_manager import AcademicVectorManager
 from src.rag.generator import AcademicRAGGenerator
+from src.config import VECTORSTORE_DIR
+from src.utils.logger import get_logger
 
 # 設定日誌
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class LocalSearchTool:
     """
@@ -15,7 +15,7 @@ class LocalSearchTool:
     針對已上傳並向量化的論文進行精確的學術檢索與句子級引用答案生成。
     """
     
-    def __init__(self, persist_directory: str = "vectorstore"):
+    def __init__(self, persist_directory: str = str(VECTORSTORE_DIR)):
         """
         初始化本地搜尋工具。
         

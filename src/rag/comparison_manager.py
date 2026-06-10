@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 import os
-import logging
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.rag.vector_manager import AcademicVectorManager
+from src.config import VECTORSTORE_DIR, MODEL_NAME
+from src.utils.logger import get_logger
 
 # 設定日誌
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class PaperFeatures(BaseModel):
     """
@@ -27,7 +27,7 @@ class AcademicComparisonManager:
     對本地上傳的多篇學術 PDF 進行交叉比對並生成對照表格。
     """
     
-    def __init__(self, persist_directory: str = "vectorstore", vector_manager: AcademicVectorManager = None):
+    def __init__(self, persist_directory: str = str(VECTORSTORE_DIR), vector_manager: AcademicVectorManager = None):
         """
         初始化比較管理員。
         """
@@ -44,7 +44,7 @@ class AcademicComparisonManager:
             
         # 初始化 Gemini Pro LLM，使用免費高效且支援結構化輸出的 gemini-2.5-flash
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model=MODEL_NAME,
             temperature=0.2, # 使用低溫度降低幻覺，確保內容客觀
             google_api_key=api_key
         )
@@ -101,8 +101,41 @@ class AcademicComparisonManager:
         """
         logger.info(f"開始為論文 '{pdf_name}' 提取學術特徵...")
         
-        # 1. 召回特定主題 chunks 作為 Context
-        context = self.retrieve_paper_context(pdf_name, k=8)
+        # 1. 召回特定主題 chunks 作為 Context，並嘗試獲取預先提取的後設資料 (B3)
+        theme_query = (
+            "methodology proposed approach model architecture datasets "
+            "experiments metrics evaluation results strengths weaknesses limitations pros cons"
+        )
+        
+        title_from_meta = ""
+        authors_from_meta = ""
+        abstract_from_meta = ""
+        
+        try:
+            results = self.vector_manager.vector_db.similarity_search_with_score(
+                query=theme_query,
+                k=8,
+                filter={"source": pdf_name}
+            )
+            
+            # 從召回的 chunks 中讀取預先提取的後設資料
+            for doc, _ in results:
+                title_from_meta = doc.metadata.get("title", "")
+                authors_from_meta = doc.metadata.get("authors", "")
+                abstract_from_meta = doc.metadata.get("abstract", "")
+                if title_from_meta:
+                    break
+        except Exception as e:
+            logger.warning(f"從向量庫讀取文獻 {pdf_name} 後設資料失敗: {e}")
+            results = []
+            
+        # 彙整內容
+        context_pieces = []
+        for idx, (doc, score) in enumerate(results, 1):
+            page_info = doc.metadata.get("page", "?")
+            context_pieces.append(f"[Source Piece #{idx} (Page {page_info})]\n{doc.page_content.strip()}")
+            
+        context = "\n\n".join(context_pieces)
         
         if not context.strip():
             logger.warning(f"未能獲取論文 '{pdf_name}' 的任何 Context。")
@@ -114,12 +147,16 @@ class AcademicComparisonManager:
                 cons="無法檢索到相關文獻內容。"
             )
             
-        # 2. 設計特徵提取 Prompt
+        # 2. 設計特徵提取 Prompt，加入已知後設資料以引導 LLM (B3)
         prompt = (
-            "你是一位資深的 AI/NLP 領域軟體工程師與學術導師。請根據下方提供的文獻上下文 (Context)，"
+            "你是一位資深的 AI/NLP 領域軟體工程師與學術導師。請根據下方提供的文獻上下文 (Context) 與已知後設資料，"
             f"精確提煉出該篇論文（原始檔名：{pdf_name}）的核心學術特徵。\n\n"
+            f"【已知後設資料】\n"
+            f"- 論文標題 (Title): {title_from_meta or '未知'}\n"
+            f"- 論文作者 (Authors): {authors_from_meta or '未知'}\n"
+            f"- 論文摘要 (Abstract): {abstract_from_meta or '未知'}\n\n"
             "【限制要求】\n"
-            "1. 必須嚴格根據提供的 Context 進行摘要，不得虛構或無中生有（防範學術幻覺）。\n"
+            "1. 必須嚴格根據提供的 Context 與後設資料進行摘要，不得虛構或無中生有（防範學術幻覺）。\n"
             "2. 除了 Title 保留學術正式英文或中文外，其餘欄位（methodology, datasets, pros, cons）必須使用『臺灣地區學術常用繁體中文語境』進行撰寫。\n"
             "3. 核心方法 (methodology) 部分請摘要出論文提出的核心突破點，字數約 80-150 字。\n\n"
             f"【文獻上下文 Context】\n{context}\n\n"

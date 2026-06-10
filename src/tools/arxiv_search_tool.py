@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 import os
-import logging
 import arxiv
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
+from src.config import MODEL_NAME, ARXIV_MAX_RESULTS
+from src.utils.logger import get_logger
 
 # 載入環境變數
 load_dotenv()
 
 # 設定日誌
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class ArXivSearchTool:
     """
@@ -21,7 +21,7 @@ class ArXivSearchTool:
     幫助學生快速生成高品質的外部文獻回顧。
     """
     
-    def __init__(self, model_name: str = "gemini-2.5-flash", max_results: int = 3):
+    def __init__(self, model_name: str = MODEL_NAME, max_results: int = ARXIV_MAX_RESULTS):
         """
         初始化 ArXiv 搜尋工具。
         

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import time
-import logging
 from typing import Callable, Any
+from src.utils.logger import get_logger
 
 # 嘗試載入 streamlit，以供前端警告渲染
 try:
@@ -11,8 +11,7 @@ except ImportError:
     HAS_STREAMLIT = False
 
 # 設定日誌
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def retry_on_429(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """

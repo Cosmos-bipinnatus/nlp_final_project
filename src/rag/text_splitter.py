@@ -2,10 +2,11 @@ import logging
 from typing import List, Dict, Any
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from src.config import CHUNK_SIZE, CHUNK_OVERLAP
+from src.utils.logger import get_logger
 
 # 設定日誌
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class AcademicTextSplitter:
     """
@@ -14,7 +15,7 @@ class AcademicTextSplitter:
     保留段落、句子完整性，並完美繼承原始頁碼與檔名的 Metadata。
     """
     
-    def __init__(self, chunk_size: int = 600, chunk_overlap: int = 120):
+    def __init__(self, chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP):
         """
         初始化切塊器。
         

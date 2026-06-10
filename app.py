@@ -4,13 +4,15 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
-# 匯入 Week 2, Week 3, Week 4 和 Week 5 的核心 NLP/RAG/Agent 元件
+# 匯入核心 NLP/RAG/Agent 元件
 from src.loaders.pdf_parser import DoubleColumnPDFParser
 from src.rag.text_splitter import AcademicTextSplitter
 from src.rag.vector_manager import AcademicVectorManager
 from src.rag.generator import AcademicRAGGenerator
 from src.agents.router_agent import AcademicRouterAgent
 from src.rag.comparison_manager import AcademicComparisonManager
+from src.config import DATA_DIR, VECTORSTORE_DIR, CHUNK_SIZE, CHUNK_OVERLAP
+from src.ui import render_styles, render_hero_banner
 
 
 # ==========================================
@@ -33,158 +35,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 定義上傳論文的儲存目錄（使用 pathlib 確保跨平台相容）
-DATA_DIR = Path("data")
-DATA_DIR.mkdir(exist_ok=True)
+# 確保必要目錄存在 (已在 config.settings 初始化)
 
 # ==========================================
 # 2. 客製化 CSS 樣式 (極致視覺美感 - Glassmorphism 與流暢動畫)
 # ==========================================
-st.markdown("""
-<style>
-    /* 引入 Google Fonts 現代字體 */
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;400;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Outfit', 'Noto Sans TC', sans-serif;
-    }
-    
-    /* 頂部極致漸層橫幅 */
-    .hero-container {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        border-radius: 16px;
-        padding: 35px 30px;
-        color: white;
-        margin-bottom: 25px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .hero-container::before {
-        content: "";
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(6, 182, 212, 0.1) 0%, transparent 60%);
-        pointer-events: none;
-    }
-    
-    .hero-title {
-        font-size: 2.8rem;
-        font-weight: 800;
-        margin: 0;
-        background: linear-gradient(to right, #ffffff, #a5f3fc);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        letter-spacing: -0.5px;
-    }
-    
-    .hero-subtitle {
-        font-size: 1.1rem;
-        font-weight: 300;
-        margin-top: 10px;
-        color: #94a3b8;
-    }
-    
-    /* 玻璃擬態卡片 (Glassmorphism Card) */
-    .glass-card {
-        background: rgba(30, 41, 59, 0.4);
-        border-radius: 12px;
-        padding: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        margin-bottom: 20px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-        transition: transform 0.3s ease, border-color 0.3s ease;
-    }
-    
-    .glass-card:hover {
-        transform: translateY(-2px);
-        border-color: rgba(6, 182, 212, 0.3);
-    }
-    
-    /* 徽章樣式 */
-    .badge {
-        background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 9999px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        display: inline-block;
-        margin-bottom: 10px;
-        box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);
-    }
-    
-    /* 側邊欄漸層裝飾 */
-    .sidebar-title {
-        font-weight: 700;
-        background: linear-gradient(to right, #38bdf8, #06b6d4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    
-    /* 流暢微動畫與按鈕調校 */
-    .stButton>button {
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    }
-    
-    /* 向量化按鈕特殊發光效果 */
-    .vectorize-btn>div>button {
-        background: linear-gradient(135deg, #06b6d4 0%, #0d9488 100%) !important;
-        color: white !important;
-        border: none !important;
-        box-shadow: 0 4px 12px rgba(6, 182, 212, 0.2) !important;
-    }
-    .vectorize-btn>div>button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px rgba(6, 182, 212, 0.4) !important;
-    }
-    
-    /* 清空按鈕樣式 */
-    .clear-btn>div>button {
-        background: rgba(239, 68, 68, 0.1) !important;
-        color: #ef4444 !important;
-        border: 1px solid rgba(239, 68, 68, 0.3) !important;
-    }
-    .clear-btn>div>button:hover {
-        background: rgba(239, 68, 68, 0.2) !important;
-        transform: translateY(-1px) !important;
-    }
-    
-    /* 骨架屏載入動畫 (Skeleton Screen Loader) */
-    @keyframes pulse {
-        0% { background-color: rgba(255, 255, 255, 0.05); }
-        50% { background-color: rgba(255, 255, 255, 0.15); }
-        100% { background-color: rgba(255, 255, 255, 0.05); }
-    }
-    .skeleton-card {
-        background: rgba(30, 41, 59, 0.25);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 20px;
-    }
-    .skeleton-title {
-        height: 24px;
-        width: 45%;
-        margin-bottom: 18px;
-        border-radius: 4px;
-        animation: pulse 1.5s infinite ease-in-out;
-    }
-    .skeleton-line {
-        height: 14px;
-        margin-bottom: 10px;
-        border-radius: 4px;
-        animation: pulse 1.5s infinite ease-in-out;
-    }
-</style>
-""", unsafe_allow_html=True)
+render_styles()
 
 # ==========================================
 # 3. 初始化 RAG 向量管理員與問答生成器
@@ -199,7 +55,7 @@ st.markdown("""
 def init_vector_manager(api_key: str):
     """快取初始化向量管理員（Embeddings + ChromaDB 連線）"""
     os.environ["GEMINI_API_KEY"] = api_key
-    return AcademicVectorManager(persist_directory="vectorstore")
+    return AcademicVectorManager(persist_directory=VECTORSTORE_DIR)
 
 @st.cache_resource
 def init_rag_generator(api_key: str):
@@ -211,13 +67,13 @@ def init_rag_generator(api_key: str):
 def init_academic_agent(api_key: str):
     """快取初始化學術路由代理（Router Agent + Local/ArXiv 工具）"""
     os.environ["GEMINI_API_KEY"] = api_key
-    return AcademicRouterAgent(persist_directory="vectorstore")
+    return AcademicRouterAgent(persist_directory=str(VECTORSTORE_DIR))
 
 @st.cache_resource
 def init_comparison_manager(api_key: str, _vector_manager=None):
     """快取初始化跨文獻比較管理員（Pydantic 結構化特徵提取引擎）"""
     os.environ["GEMINI_API_KEY"] = api_key
-    return AcademicComparisonManager(persist_directory="vectorstore", vector_manager=_vector_manager)
+    return AcademicComparisonManager(persist_directory=str(VECTORSTORE_DIR), vector_manager=_vector_manager)
 
 # 優先建立側邊欄 API Key 輸入框
 with st.sidebar:
@@ -362,13 +218,7 @@ def save_uploaded_files(uploaded_files: list) -> tuple[int, int, list[str]]:
 # ==========================================
 
 # 頂部視覺 Banner
-st.markdown("""
-<div class="hero-container">
-    <span class="badge">Week 6 (Complete & Optimized): 評估與整合 (Evaluation & UI Integration)</span>
-    <h1 class="hero-title">Literature Reviewer 📚</h1>
-    <p class="hero-subtitle">大二資工系專題：基於 Google Gemini 2.5-Flash 與雙欄排版還原的學術文獻 RAG 系統</p>
-</div>
-""", unsafe_allow_html=True)
+render_hero_banner()
 
 # 左右雙欄配置 (側邊欄 Sidebar + 主面板 Main Panel)
 with st.sidebar:
@@ -569,12 +419,13 @@ with st.sidebar:
 col_main, col_spacer = st.columns([12, 1])
 
 with col_main:
-    # 創建標籤頁：1. 上傳論文 2. 語意相似度檢索 3. AI文獻問答與引用定位 4. 跨文獻比較矩陣
-    tab_upload, tab_search, tab_qa, tab_comparison = st.tabs([
+    # 創建標籤頁：1. 上傳論文 2. 語意相似度檢索 3. AI文獻問答與引用定位 4. 跨文獻比較矩陣 5. 文獻回顧綜述
+    tab_upload, tab_search, tab_qa, tab_comparison, tab_review = st.tabs([
         "📥 論文上傳與存檔", 
         "🔍 語意檢索與召回測試 (Semantic Search)", 
         "💬 AI 文獻問答與引用定位 (Literature QA)",
-        "📊 跨文獻比較矩陣 (Comparison Grid)"
+        "📊 跨文獻比較矩陣 (Comparison Grid)",
+        "📚 文獻回顧綜述 (Literature Review)"
     ])
     
     # ==========================================
@@ -1042,6 +893,130 @@ with col_main:
                 st.markdown("##### 📄 複製 Markdown 格式表格")
                 md_table = comparison_manager.convert_to_markdown_table(data)
                 st.code(md_table, language="markdown")
+
+    # ==========================================
+    # Tab 5: 文獻回顧報告生成 (B2 & Week 6 綜述生成)
+    # ==========================================
+    with tab_review:
+        st.markdown("### 📚 多文獻學術綜述與研究回顧報告生成 (Literature Review)")
+        st.write("本功能支援一鍵為多篇論文生成整合性的學術綜述與文獻回顧報告。系統將利用特徵提取引擎對選定論文進行交叉分析，提煉出技術演進脈絡、共同瓶頸與研究缺口，並支援匯出為標準 Markdown 格式或 A4 規格 PDF 報告。")
+        
+        # 檢查是否有足夠的 PDF 論文
+        existing_pdfs = list(DATA_DIR.glob("*.pdf"))
+        
+        if not gemini_api_key:
+            st.info("👉 請在左側「專案控制台」輸入您的 **Gemini API Key** 以啟用文獻綜述功能。")
+        elif not vector_manager or vector_manager.get_collection_count() == 0:
+            st.warning("⚠️ 文獻綜述不可用：向量庫目前沒有資料！請先完成論文上傳，並在側邊欄點擊「🔄 向量化本地文獻庫」。")
+        elif len(existing_pdfs) < 2:
+            st.info("💡 跨文獻綜述需要至少 **2 篇** 以上的已向量化文獻。目前檢測到本地文獻庫中只有 1 篇文獻，請先前往第一分頁上傳更多文獻並點擊向量化。")
+        elif not comparison_manager:
+            st.error("❌ 比較引擎未啟用，無法進行分析。")
+        else:
+            # 提供多選選單
+            pdf_names = [pdf.name for pdf in existing_pdfs]
+            
+            st.markdown("#### 📑 選擇您要納入綜述的學術文獻（最少 2 篇）")
+            selected_review_pdfs = st.multiselect(
+                label="選擇綜述文獻 PDF 檔案",
+                options=pdf_names,
+                default=pdf_names[:2] if len(pdf_names) >= 2 else pdf_names,
+                key="review_multiselect_pdfs"
+            )
+            
+            # 生成綜述按鈕
+            submit_review = st.button("📚 啟動綜述特徵交叉比對與回顧報告生成", key="review_submit_btn")
+            
+            # 初始化快取
+            if "review_text" not in st.session_state:
+                st.session_state.review_text = None
+            if "review_pdf_set" not in st.session_state:
+                st.session_state.review_pdf_set = set()
+                
+            # 觸發生成
+            if submit_review:
+                if len(selected_review_pdfs) < 2:
+                    st.warning("⚠️ 請至少選擇兩篇文獻以進行回顧報告生成！")
+                else:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # 顯示載入動畫
+                    skeleton_placeholder = st.empty()
+                    skeleton_placeholder.markdown(render_skeleton_screen("qa"), unsafe_allow_html=True)
+                    
+                    try:
+                        # 1. 取得或生成特徵資料
+                        comparison_data = []
+                        total_pdfs = len(selected_review_pdfs)
+                        
+                        for idx, pdf_name in enumerate(selected_review_pdfs, 1):
+                            status_text.info(f"🧬 正在從 `{pdf_name}` 提煉學術特徵 ({idx}/{total_pdfs})...")
+                            features = comparison_manager.extract_features_for_paper(pdf_name)
+                            comparison_data.append({
+                                "pdf_file": pdf_name,
+                                "title": features.title,
+                                "methodology": features.methodology,
+                                "datasets": features.datasets,
+                                "pros": features.pros,
+                                "cons": features.cons
+                            })
+                            progress_bar.progress(int((idx / total_pdfs) * 50))
+                            
+                        # 2. 初始化 LiteratureReviewGenerator 並生成報告
+                        status_text.info("🤖 正在交叉比對各篇文獻並撰寫綜述報告，這可能需要一到二分鐘...")
+                        from src.rag.literature_review_manager import AcademicLiteratureReviewGenerator
+                        review_generator = AcademicLiteratureReviewGenerator()
+                        
+                        review_text = review_generator.generate_review_report(comparison_data)
+                        progress_bar.progress(100)
+                        
+                        # 儲存快取
+                        st.session_state.review_text = review_text
+                        st.session_state.review_pdf_set = set(selected_review_pdfs)
+                        
+                        status_text.empty()
+                        progress_bar.empty()
+                        skeleton_placeholder.empty()
+                        st.success("🎉 學術文獻回顧綜述報告生成成功！已安全緩存報告。")
+                        st.balloons()
+                        
+                    except Exception as e:
+                        status_text.empty()
+                        progress_bar.empty()
+                        skeleton_placeholder.empty()
+                        st.error(f"❌ 綜述報告生成失敗: {e}")
+                        logger.error(f"綜述報告生成失敗: {e}")
+                        
+            # 3. 渲染結果
+            if st.session_state.review_text and set(selected_review_pdfs) == st.session_state.review_pdf_set:
+                report = st.session_state.review_text
+                
+                st.markdown("---")
+                st.markdown("#### 📚 生成的文獻綜述與研究回顧")
+                
+                # 渲染 Markdown 綜述報告
+                st.markdown(report)
+                
+                # 4. 提供 PDF 下載
+                st.markdown("---")
+                st.markdown("#### 📥 匯出綜述報告")
+                st.caption("您可以一鍵下載本篇報告的 A4 排版 PDF 檔。")
+                
+                try:
+                    from src.utils.pdf_generator import generate_review_pdf
+                    pdf_bytes = generate_review_pdf(report)
+                    
+                    st.download_button(
+                        label="📥 下載學術綜述報告 (.pdf)",
+                        data=pdf_bytes,
+                        file_name="literature_review_synthesis_report.pdf",
+                        mime="application/pdf",
+                        key="download_review_pdf_btn",
+                        use_container_width=True
+                    )
+                except Exception as pdf_err:
+                    st.error(f"❌ PDF 生成失敗: {pdf_err}")
 
 # 系統底部狀態資訊
 st.markdown("---")

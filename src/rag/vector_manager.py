@@ -1,27 +1,27 @@
 import os
-import logging
 from pathlib import Path
 from typing import List, Tuple
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
+from src.config import VECTORSTORE_DIR, COLLECTION_NAME, EMBEDDING_MODEL
+from src.utils.logger import get_logger
 
 # 載入環境變數
 load_dotenv()
 
 # 設定日誌記錄
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class AcademicVectorManager:
     """
     學術論文向量資料庫管理員。
-    負責使用 Google Gemini 的 text-embedding-004 模型將文本轉換為 768 維語意向量，
+    負責使用 Google Gemini 的向量化模型將文本轉換為語意向量，
     並儲存於本地持久化的 ChromaDB 資料庫中，同時提供高效的相似度搜尋介面。
     """
     
-    def __init__(self, persist_directory: str | Path = "vectorstore", collection_name: str = "literature_review"):
+    def __init__(self, persist_directory: str | Path = VECTORSTORE_DIR, collection_name: str = COLLECTION_NAME):
         """
         初始化向量資料庫管理員。
         
@@ -39,13 +39,13 @@ class AcademicVectorManager:
             raise ValueError("GEMINI_API_KEY 未正確載入，請檢查根目錄的 .env 檔案。")
             
         # 2. 初始化 Google Gemini Embeddings 模型
-        # 指定 models/gemini-embedding-2 作為底層向量化模型（輸出 3072 維語意向量）
+        # 指定底層向量化模型（當前使用 models/gemini-embedding-001，輸出 768 維語意向量）
         try:
             self.embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/gemini-embedding-001",
+                model=EMBEDDING_MODEL,
                 google_api_key=api_key
             )
-            logger.info("成功初始化 Google Gemini Embeddings 模型 (gemini-embedding-001)。")
+            logger.info(f"成功初始化 Google Gemini Embeddings 模型 ({EMBEDDING_MODEL})。")
         except Exception as e:
             logger.error(f"初始化 Gemini Embeddings 時發生異常: {e}")
             raise e
@@ -59,13 +59,37 @@ class AcademicVectorManager:
             )
             logger.info(f"成功連結本地 ChromaDB 持久化目錄: {self.persist_directory}")
         except Exception as e:
-            logger.error(f"初始化 ChromaDB 時發生異常: {e}")
-            raise e
+            # 如果發生維度不相容等錯誤，自動清空並重建資料庫以自我修復 (B1 功能)
+            err_msg = str(e)
+            if any(word in err_msg.lower() for word in ["dimension", "dimensionality", "metadata", "invalid"]):
+                logger.warning(
+                    f"⚠️ 偵測到向量庫維度不相容或配置不匹配 ({err_msg})。"
+                    f"系統將自動重置持久化目錄 `{self.persist_directory}` 並重建資料庫..."
+                )
+                try:
+                    import shutil
+                    if self.persist_directory.exists():
+                        shutil.rmtree(self.persist_directory)
+                    self.persist_directory.mkdir(parents=True, exist_ok=True)
+                    
+                    self.vector_db = Chroma(
+                        collection_name=self.collection_name,
+                        embedding_function=self.embeddings,
+                        persist_directory=str(self.persist_directory)
+                    )
+                    logger.info("ChromaDB 已成功清空並重新初始化。")
+                except Exception as rebuild_error:
+                    logger.critical(f"自動重建 ChromaDB 失敗: {rebuild_error}")
+                    raise rebuild_error
+            else:
+                logger.error(f"初始化 ChromaDB 時發生異常: {e}")
+                raise e
 
     def store_documents(self, documents: List[Document]) -> None:
         """
         將切塊後的 LangChain Document 轉換為向量並存入本地 ChromaDB 中。
         採用分批寫入 (Batching) 與指數退避重試機制，以避免 Gemini Embeddings API 的 429 速率限制錯誤。
+        本方法具備「重複文件偵測與覆蓋」功能 (C3)，若偵測到相同來源的文獻已存在，會自動先清空舊的切塊再寫入。
         
         Args:
             documents (List[Document]): 待存入的切塊 Document 物件清單
@@ -76,6 +100,19 @@ class AcademicVectorManager:
             
         logger.info(f"準備向量化並儲存 {len(documents)} 個切塊到 ChromaDB...")
         
+        # 1. 重複文件偵測與覆蓋處理 (C3)
+        try:
+            # 取得待寫入文獻的所有不重複來源檔名
+            sources_to_write = {doc.metadata.get("source") for doc in documents if doc.metadata.get("source")}
+            if sources_to_write:
+                existing_sources = set(self.get_unique_sources())
+                for source in sources_to_write:
+                    if source in existing_sources:
+                        logger.info(f"[重複偵測] 發現文獻 `{source}` 已存在於向量資料庫中，將進行覆蓋寫入（先刪除舊向量）。")
+                        self.delete_by_source(source)
+        except Exception as e:
+            logger.warning(f"重複文件偵測/清理舊向量時發生非致命錯誤: {e}，將直接嘗試寫入。")
+            
         from src.utils.retry_handler import retry_on_429
         
         # 設定每批次寫入的數量，避免單次 API 請求的 Payload 過大而觸發 rate limit

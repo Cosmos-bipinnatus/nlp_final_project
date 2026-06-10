@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 import os
-import logging
 from typing import List, Tuple
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from src.config import MODEL_NAME
 from src.prompts.academic_prompts import ACADEMIC_QA_SYSTEM_PROMPT, ACADEMIC_QA_USER_TEMPLATE
+from src.utils.logger import get_logger
 
 # 載入環境變數
 load_dotenv()
 
 # 設定日誌
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class AcademicRAGGenerator:
     """
@@ -23,7 +23,7 @@ class AcademicRAGGenerator:
     結合成專門設計的學術提示詞，進行句子級別的精確引用標籤生成，確保學術嚴謹性並杜絕幻覺。
     """
     
-    def __init__(self, model_name: str = "gemini-2.5-flash", temperature: float = 0.2):
+    def __init__(self, model_name: str = MODEL_NAME, temperature: float = 0.2):
         """
         初始化學術 RAG 生成器。
         

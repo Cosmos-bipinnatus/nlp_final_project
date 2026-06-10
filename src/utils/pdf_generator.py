@@ -226,3 +226,127 @@ def generate_comparison_pdf(comparison_data: List[Dict[str, Any]]) -> bytes:
         p.insert_text((page_w / 2 - 10, page_h - 20), f"- {p_idx + 1} / {total_pages} -", fontsize=8, fontname=fontname, color=(0.5, 0.5, 0.5))
         
     return doc.tobytes()
+
+def generate_review_pdf(report_text: str) -> bytes:
+    """
+    將 Markdown 格式的文獻回顧綜述報告轉換為排版精美的 PDF 二進位資料。 (B2)
+    """
+    doc = fitz.open()
+    fontname = "china-t"
+    
+    page_w = 595.3
+    page_h = 841.9
+    margin = 50
+    usable_w = page_w - 2 * margin
+    
+    title_size = 18
+    h2_size = 13
+    body_size = 10
+    line_h = 16
+    chars_per_line = int(usable_w / body_size) # 每行字數 (約 49 字)
+    
+    page = doc.new_page(width=page_w, height=page_h)
+    y = margin
+    
+    # 畫一條左側學術藍裝飾條
+    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+    
+    lines = report_text.split("\n")
+    for line in lines:
+        line_str = line.strip()
+        if not line_str:
+            y += 8
+            continue
+            
+        # 處理 Markdown 標題與格式
+        if line_str.startswith("# "):
+            # 一級標題（主標題）
+            text = line_str[2:].strip().replace("**", "")
+            if y + 35 > page_h - margin:
+                page = doc.new_page(width=page_w, height=page_h)
+                y = margin
+                page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+            page.insert_text((margin, y), text, fontsize=title_size, fontname=fontname, color=(0.02, 0.45, 0.55))
+            y += 30
+            # 畫底線
+            page.draw_line(fitz.Point(margin, y - 5), fitz.Point(page_w - margin, y - 5), color=(0.02, 0.45, 0.55), width=1)
+            y += 10
+            
+        elif line_str.startswith("## "):
+            # 二級標題
+            text = line_str[3:].strip().replace("**", "")
+            if y + 28 > page_h - margin:
+                page = doc.new_page(width=page_w, height=page_h)
+                y = margin
+                page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+            y += 10 # 標題前留白
+            page.insert_text((margin, y), text, fontsize=h2_size, fontname=fontname, color=(0.02, 0.45, 0.55))
+            y += 20
+            
+        elif line_str.startswith("### "):
+            # 三級標題
+            text = line_str[4:].strip().replace("**", "")
+            if y + 24 > page_h - margin:
+                page = doc.new_page(width=page_w, height=page_h)
+                y = margin
+                page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+            page.insert_text((margin, y), text, fontsize=body_size + 1, fontname=fontname, color=(0.06, 0.55, 0.65))
+            y += 18
+            
+        elif line_str.startswith("- ") or line_str.startswith("* "):
+            # 無序列表
+            text = line_str[2:].strip().replace("**", "")
+            wrapped_lines = wrap_text(f"•  {text}", chars_per_line)
+            for w_line in wrapped_lines:
+                if y > page_h - margin - 20:
+                    page = doc.new_page(width=page_w, height=page_h)
+                    y = margin
+                    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+                page.insert_text((margin + 10, y), w_line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
+                y += line_h
+                
+        elif re.match(r'^\d+\.\s', line_str):
+            # 有序列表
+            match = re.match(r'^(\d+\.\s)(.*)', line_str)
+            prefix = match.group(1)
+            text = match.group(2).strip().replace("**", "")
+            wrapped_lines = wrap_text(f"{prefix}{text}", chars_per_line)
+            for w_line in wrapped_lines:
+                if y > page_h - margin - 20:
+                    page = doc.new_page(width=page_w, height=page_h)
+                    y = margin
+                    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+                page.insert_text((margin, y), w_line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
+                y += line_h
+                
+        else:
+            # 普通段落文字
+            text = line_str.replace("**", "")
+            # 簡單處理 Markdown 區塊引言
+            indent = 0
+            if text.startswith(">"):
+                text = text[1:].strip()
+                indent = 15
+                
+            wrapped_lines = wrap_text(text, chars_per_line - (indent // 10))
+            for w_line in wrapped_lines:
+                if y > page_h - margin - 20:
+                    page = doc.new_page(width=page_w, height=page_h)
+                    y = margin
+                    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+                page.insert_text((margin + indent, y), w_line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
+                y += line_h
+                
+    # 最後統一在每頁加上頁碼與裝飾線
+    total_pages = len(doc)
+    for p_idx in range(total_pages):
+        p = doc[p_idx]
+        # 頁首線
+        if p_idx > 0:
+            p.draw_line(fitz.Point(margin, 35), fitz.Point(page_w - margin, 35), color=(0.8, 0.8, 0.8), width=0.5)
+        # 頁尾線
+        p.draw_line(fitz.Point(margin, page_h - 35), fitz.Point(page_w - margin, page_h - 35), color=(0.8, 0.8, 0.8), width=0.5)
+        # 頁尾頁碼
+        p.insert_text((page_w / 2 - 10, page_h - 20), f"- {p_idx + 1} / {total_pages} -", fontsize=8, fontname=fontname, color=(0.5, 0.5, 0.5))
+        
+    return doc.tobytes()

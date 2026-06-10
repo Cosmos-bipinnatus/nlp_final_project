@@ -1,11 +1,10 @@
 import fitz  # PyMuPDF
-import logging
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
+from src.utils.logger import get_logger
 
 # 設定日誌
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class DoubleColumnPDFParser:
     """
@@ -112,6 +111,152 @@ class DoubleColumnPDFParser:
             return f"{left_text}\n{right_text}"
         return left_text if left_text else right_text
 
+    def _extract_metadata_heuristics(self, doc) -> Dict[str, str]:
+        """
+        利用啟發式演算法從 PDF 的第一頁提取標題 (Title)、作者 (Authors) 與摘要 (Abstract)。 (B3)
+        
+        Args:
+            doc: PyMuPDF Document 物件
+            
+        Returns:
+            Dict[str, str]: 包含 title, authors, abstract 的字典
+        """
+        metadata = {
+            "title": "",
+            "authors": "",
+            "abstract": ""
+        }
+        
+        try:
+            if len(doc) == 0:
+                return metadata
+                
+            # 取得第一頁
+            page = doc[0]
+            page_dict = page.get_text("dict")
+            blocks = page_dict.get("blocks", [])
+            
+            # 1. 蒐集所有 spans 資訊
+            spans_info = []
+            for b in blocks:
+                if "lines" in b:
+                    for l in b["lines"]:
+                        for s in l["spans"]:
+                            text = s["text"].strip()
+                            if text:
+                                spans_info.append({
+                                    "text": text,
+                                    "size": s["size"],
+                                    "bbox": s["bbox"]
+                                })
+                                
+            if not spans_info:
+                return metadata
+                
+            # 2. 提取標題：通常是字型最大的一行或多行
+            # 過濾掉長度小於等於 3 的雜訊
+            valid_spans = [s for s in spans_info if len(s["text"]) > 3]
+            if not valid_spans:
+                return metadata
+                
+            max_size = max(s["size"] for s in valid_spans)
+            # 提取大於等於最大字型 90% 的 spans (多行標題)
+            title_spans = [s for s in valid_spans if s["size"] >= max_size * 0.9]
+            # 依垂直坐標 y0 排序，若相同則依 x0 排序
+            title_spans = sorted(title_spans, key=lambda s: (s["bbox"][1], s["bbox"][0]))
+            
+            title = " ".join(s["text"] for s in title_spans)
+            title = " ".join(title.split()) # 清理連續空格
+            metadata["title"] = title
+            
+            # 計算標題的底部邊界 y1
+            title_bottom_y = max(s["bbox"][3] for s in title_spans)
+            
+            # 3. 提取作者：通常在標題下方，且字型大於普通內文，小於標題
+            # 過濾出在標題下方的 spans
+            below_title_spans = [s for s in valid_spans if s["bbox"][1] > title_bottom_y]
+            
+            # 通常作者在 "Abstract" 或 "ABSTRACT" 之前出現
+            abstract_y = None
+            for s in below_title_spans:
+                if s["text"].lower() in ["abstract", "abstract—", "abstract:"]:
+                    abstract_y = s["bbox"][1]
+                    break
+                    
+            if abstract_y is None:
+                # 模糊搜尋 abstract 關鍵字
+                for s in below_title_spans:
+                    if "abstract" in s["text"].lower():
+                        abstract_y = s["bbox"][1]
+                        break
+                        
+            # 如果有找到 Abstract 的 y 軸位置，則作者 span 應在 title_bottom_y 與 abstract_y 之間
+            author_candidates = []
+            if abstract_y is not None:
+                author_candidates = [s for s in below_title_spans if s["bbox"][3] < abstract_y]
+            else:
+                # 否則只取標題下方前幾個 spans
+                author_candidates = below_title_spans[:10]
+                
+            # 作者的字型通常相同，且通常在一個或兩個連續 block 中
+            if author_candidates:
+                # 過濾出字型大小在合理區區間 (8pt ~ 14pt) 的 span，且長度符合名字特性
+                # 剔除可能包含 email 或機構的 span
+                clean_authors = []
+                for s in author_candidates:
+                    txt = s["text"]
+                    if not any(word in txt.lower() for word in ["@", "email", "university", "department", "inst", "school", "college"]):
+                        clean_authors.append(s)
+                
+                # 依坐標排序
+                clean_authors = sorted(clean_authors, key=lambda s: (s["bbox"][1], s["bbox"][0]))
+                authors_str = " ".join(s["text"] for s in clean_authors)
+                authors_str = " ".join(authors_str.split())
+                # 限制長度
+                if len(authors_str) > 150:
+                    authors_str = authors_str[:150] + "..."
+                metadata["authors"] = authors_str
+            else:
+                metadata["authors"] = "未知作者"
+            
+            # 4. 提取摘要：通常在 "Abstract" 關鍵字後面的文字區塊，或是包覆在 "Abstract" 與 "Introduction" 之間
+            raw_blocks = page.get_text("blocks")
+            raw_blocks = sorted(raw_blocks, key=lambda b: (b[1], b[0]))
+            
+            abstract_text = ""
+            found_abstract = False
+            for b in raw_blocks:
+                if b[6] == 0: # 文字區塊
+                    text = b[4].strip()
+                    if not found_abstract:
+                        # 偵測是否為 Abstract 開頭
+                        if text.lower().startswith("abstract") or "abstract" in text[:30].lower():
+                            found_abstract = True
+                            # 取出 Abstract 字眼後面的內容
+                            idx = text.lower().find("abstract")
+                            part = text[idx + 8:].strip()
+                            if part.startswith("—") or part.startswith("-") or part.startswith(":"):
+                                part = part[1:].strip()
+                            abstract_text = part
+                    else:
+                        # 結束條件：通常 Abstract 後面是 Introduction
+                        if "introduction" in text[:25].lower() or "1. intro" in text[:25].lower() or "i. intro" in text[:25].lower():
+                            break
+                        abstract_text += "\n" + text
+                        
+            if abstract_text:
+                abstract_clean = " ".join(abstract_text.split())
+                if len(abstract_clean) > 800:
+                    abstract_clean = abstract_clean[:800] + "..."
+                metadata["abstract"] = abstract_clean
+            else:
+                metadata["abstract"] = "無摘要資料"
+                
+        except Exception as e:
+            logger.warning(f"啟發式提取 PDF 後設資料失敗: {e}")
+            
+        return metadata
+
     def parse_pdf(self) -> List[Dict[str, Any]]:
         """
         解析整個 PDF 檔案。
@@ -126,7 +271,10 @@ class DoubleColumnPDFParser:
                     "metadata": {
                         "source": "論文檔名.pdf",
                         "page": 1,
-                        "total_pages": 12
+                        "total_pages": 12,
+                        "title": "提取之實際標題",
+                        "authors": "提取之作者",
+                        "abstract": "提取之摘要"
                     }
                 },
                 ...
@@ -140,6 +288,13 @@ class DoubleColumnPDFParser:
             doc = fitz.open(self.file_path)
             total_pages = len(doc)
             logger.info(f"開始解析 PDF: {file_name}，共 {total_pages} 頁")
+            
+            # 提取後設資料 (B3)
+            paper_meta = self._extract_metadata_heuristics(doc)
+            title = paper_meta.get("title") or file_name
+            authors = paper_meta.get("authors") or "未知作者"
+            abstract = paper_meta.get("abstract") or "無摘要資料"
+            logger.info(f"成功提取文獻後設資料 -> 標題: '{title}' | 作者: '{authors}'")
             
             for page_idx in range(total_pages):
                 page = doc[page_idx]
@@ -156,11 +311,14 @@ class DoubleColumnPDFParser:
                 # 執行雙欄還原演算法
                 reconstructed_text = self._sort_blocks_by_reading_order(blocks, page_width)
                 
-                # 包裝 Metadata
+                # 包裝 Metadata，加入標題、作者和摘要 (B3)
                 metadata = {
                     "source": file_name,
                     "page": page_number,
-                    "total_pages": total_pages
+                    "total_pages": total_pages,
+                    "title": title,
+                    "authors": authors,
+                    "abstract": abstract
                 }
                 
                 documents.append({
