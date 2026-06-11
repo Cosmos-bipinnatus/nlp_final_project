@@ -1880,7 +1880,6 @@ dependencies = [
     { name = "langchain-google-genai" },
     { name = "protobuf" },
     { name = "pymupdf" },
-    { name = "python-dotenv" },
     { name = "streamlit" },
 ]
 
@@ -1893,7 +1892,6 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = ">=4.2.4" },
     { name = "protobuf", specifier = "==3.20.3" },
     { name = "pymupdf", specifier = ">=1.27.2.3" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "streamlit", specifier = ">=1.57.0" },
 ]
 

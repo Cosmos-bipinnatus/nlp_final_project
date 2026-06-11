@@ -3,16 +3,12 @@ import os
 import re
 from typing import Literal, Dict, Any, List
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.config import MODEL_NAME, VECTORSTORE_DIR
 from src.utils.logger import get_logger
 
 from src.tools.local_search_tool import LocalSearchTool
 from src.tools.arxiv_search_tool import ArXivSearchTool
-
-# 載入環境變數
-load_dotenv()
 
 # 設定日誌
 logger = get_logger(__name__)

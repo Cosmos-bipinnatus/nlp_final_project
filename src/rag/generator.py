@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 import os
 from typing import List, Tuple
-from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -9,9 +7,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from src.config import MODEL_NAME
 from src.prompts.academic_prompts import ACADEMIC_QA_SYSTEM_PROMPT, ACADEMIC_QA_USER_TEMPLATE
 from src.utils.logger import get_logger
-
-# 載入環境變數
-load_dotenv()
 
 # 設定日誌
 logger = get_logger(__name__)

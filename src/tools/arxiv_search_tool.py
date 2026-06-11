@@ -2,13 +2,9 @@
 import os
 import arxiv
 from typing import Dict, Any, List
-from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.config import MODEL_NAME, ARXIV_MAX_RESULTS
 from src.utils.logger import get_logger
-
-# 載入環境變數
-load_dotenv()
 
 # 設定日誌
 logger = get_logger(__name__)

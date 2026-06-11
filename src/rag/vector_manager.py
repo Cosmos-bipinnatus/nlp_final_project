@@ -1,15 +1,11 @@
 import os
 from pathlib import Path
 from typing import List, Tuple
-from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 from src.config import VECTORSTORE_DIR, COLLECTION_NAME, EMBEDDING_MODEL
 from src.utils.logger import get_logger
-
-# 載入環境變數
-load_dotenv()
 
 # 設定日誌記錄
 logger = get_logger(__name__)
