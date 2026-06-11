@@ -48,10 +48,15 @@ def retry_on_429(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
                 # 如果在 Streamlit 環境下，在 UI 渲染出警告，避免評審與同學慌張
                 if HAS_STREAMLIT:
                     try:
-                        st.warning(
+                        warning_msg = (
                             f"⏳ **Gemini API 速率限制中...** "
                             f"系統將在 {delay:.1f} 秒後進行第 {attempt + 1}/{max_retries} 次自動重試，請稍候。"
                         )
+                        # 避開側邊欄窄欄位被擠壓的問題：如果是由側邊欄動作觸發，將警告推送到大容器側邊欄底部
+                        if st.session_state.get("sidebar_active", False):
+                            st.sidebar.warning(warning_msg)
+                        else:
+                            st.warning(warning_msg)
                     except Exception:
                         pass
                 

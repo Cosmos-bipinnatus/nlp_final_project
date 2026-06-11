@@ -42,6 +42,10 @@ st.set_page_config(
 # ==========================================
 render_styles()
 
+# 初始化側邊欄活動狀態（避免重試提示被擠壓）
+if "sidebar_active" not in st.session_state:
+    st.session_state["sidebar_active"] = False
+
 # ==========================================
 # 3. 初始化 RAG 向量管理員與問答生成器
 #    使用 @st.cache_resource 進行單例快取：
@@ -297,8 +301,9 @@ with st.sidebar:
                 with col_v:
                     if not is_vectorized:
                         if st.button("🔄", key=f"btn_vec_single_{pdf.name}", help=f"單篇向量化: {pdf.name}"):
-                            progress_bar = st.progress(0)
-                            status_text = st.empty()
+                            st.session_state["sidebar_active"] = True
+                            progress_bar = st.sidebar.progress(0)
+                            status_text = st.sidebar.empty()
                             try:
                                 status_text.info(f"📖 正在解析雙欄排版...")
                                 parser = DoubleColumnPDFParser(pdf)
@@ -314,16 +319,18 @@ with st.sidebar:
                                     status_text.info(f"🚀 正在寫入向量庫...")
                                     vector_manager.store_documents(chunks)
                                     progress_bar.progress(100)
-                                    st.success(f"🎉 論文 `{pdf.name}` 向量化成功！")
+                                    st.sidebar.success(f"🎉 論文 `{pdf.name}` 向量化成功！")
                                     st.balloons()
+                                    st.session_state["sidebar_active"] = False
                                     st.rerun()
                                 else:
-                                    st.warning("⚠️ 未能產生有效的文本切塊！")
+                                    st.sidebar.warning("⚠️ 未能產生有效的文本切塊！")
                             except Exception as e:
-                                st.error(f"❌ 向量化失敗: {e}")
+                                st.sidebar.error(f"❌ 向量化失敗: {e}")
                             finally:
                                 status_text.empty()
                                 progress_bar.empty()
+                                st.session_state["sidebar_active"] = False
                     else:
                         st.write("") # 佔位
                         
@@ -354,6 +361,27 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("#### ⚡ 向量引擎控制")
     
+    # 檢查是否有巨型 PDF 論文/書籍 (單篇大於 50 頁)
+    has_large_pdf = False
+    large_pdf_names = []
+    for pdf_path in existing_pdfs:
+        try:
+            import fitz
+            doc = fitz.open(pdf_path)
+            if len(doc) > 50:
+                has_large_pdf = True
+                large_pdf_names.append(pdf_path.name)
+            doc.close()
+        except Exception:
+            pass
+            
+    if has_large_pdf:
+        st.warning(
+            f"💡 **偵測到巨型書籍/文獻**：\n"
+            f"文獻 {', '.join([f'`{n}`' for n in large_pdf_names])} 超過 50 頁。一鍵向量化整本巨著極易擊穿免費 API 配額。\n\n"
+            f"**強烈建議**：使用上方文獻清單個別論文旁的 **「🔄」** 按鈕進行「單篇向量化」，分次有間隔地寫入以維持系統穩定。"
+        )
+    
     # 向量化本地庫按鈕
     if vector_manager:
         st.markdown('<div class="vectorize-btn">', unsafe_allow_html=True)
@@ -361,6 +389,7 @@ with st.sidebar:
             if not existing_pdfs:
                 st.warning("⚠️ 目前本地文獻目錄 `data/` 中沒有任何 PDF 檔案！請先前往「📥 論文上傳與存檔」分頁上傳論文。")
             else:
+                st.session_state["sidebar_active"] = True
                 # 建立多層 Loading 動畫
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -394,6 +423,7 @@ with st.sidebar:
                         status_text.empty()
                         st.success(f"🎉 成功向量化 {total_files} 篇文獻，生成 {len(all_chunks)} 個語意切塊！")
                         st.balloons()
+                        st.session_state["sidebar_active"] = False
                         st.rerun()
                     else:
                         st.warning("⚠️ 未能產生有效的文本切塊！")
@@ -402,6 +432,8 @@ with st.sidebar:
                     status_text.empty()
                     st.error(f"❌ 向量化失敗: {e}")
                     logger.error(f"向量化失敗: {e}")
+                finally:
+                    st.session_state["sidebar_active"] = False
         st.markdown('</div>', unsafe_allow_html=True)
         
         # 清空資料庫按鈕

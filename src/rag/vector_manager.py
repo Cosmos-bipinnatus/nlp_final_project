@@ -14,18 +14,6 @@ load_dotenv()
 # 設定日誌記錄
 logger = get_logger(__name__)
 
-class PatchedGoogleGenerativeAIEmbeddings(GoogleGenerativeAIEmbeddings):
-    """
-    修補後的 Google Gemini Embeddings 類別。
-    
-    原因：Pydantic v2 會嚴格驗證屬性賦值，直接在實例上動態綁定方法會拋出 "no field 'embed_documents'" 的錯誤。
-    解決方案：利用類別繼承重寫 `embed_documents` 方法，透過 List Comprehension 逐一調用單一轉換的 `embed_query`，
-    徹底避開官方 SDK 在 batch 向量化時將列表摺疊為單一 Content 產生的 list index 越界 bug。
-    """
-    def embed_documents(self, texts: List[str], **kwargs) -> List[List[float]]:
-        logger.info(f"[Patch] 正在使用安全串流方式向量化 {len(texts)} 個切塊...")
-        return [self.embed_query(t) for t in texts]
-
 class AcademicVectorManager:
     """
     學術論文向量資料庫管理員。
@@ -52,11 +40,11 @@ class AcademicVectorManager:
             
         # 2. 初始化 Google Gemini Embeddings 模型
         try:
-            self.embeddings = PatchedGoogleGenerativeAIEmbeddings(
+            self.embeddings = GoogleGenerativeAIEmbeddings(
                 model=EMBEDDING_MODEL,
                 google_api_key=api_key
             )
-            logger.info(f"成功初始化 Patched Google Gemini Embeddings 模型 ({EMBEDDING_MODEL})。")
+            logger.info(f"成功初始化 Google Gemini Embeddings 模型 ({EMBEDDING_MODEL})。")
         except Exception as e:
             logger.error(f"初始化 Gemini Embeddings 時發生異常: {e}")
             raise e
@@ -140,6 +128,13 @@ class AcademicVectorManager:
                 
                 # 使用 retry_on_429 包裝 add_documents 呼叫，若遇到限流會自動等待重試
                 retry_on_429(self.vector_db.add_documents, batch)
+                
+                # 根本解決 429 限流：自適應主動流量平滑延遲 (Adaptive Rate Limiting Sleep)
+                # 免費方案 API 短時間高密度發送請求極易耗盡 QPM/TPM 配額，
+                # 若還有下一批次，主動 sleep 1.2 秒可將密集請求在時間軸上平滑分散，有效消除 429 發生。
+                if i + batch_size < total_chunks:
+                    import time
+                    time.sleep(1.2)
                 
             logger.info("ChromaDB 所有批次寫入成功！數據已持久化儲存。")
         except Exception as e:
