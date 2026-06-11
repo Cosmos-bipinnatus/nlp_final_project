@@ -4,14 +4,9 @@ Literature Reviewer 全域設定檔
 集中管理所有模型名稱、檔案路徑、RAG 切塊參數以及其他全域配置。
 """
 
-import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-# 1. 載入環境變數
-load_dotenv()
-
-# 2. 基礎路徑配置
+# 1. 基礎路徑配置
 # 專案根目錄
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 

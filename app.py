@@ -2,7 +2,6 @@ import streamlit as st
 import os
 import logging
 from pathlib import Path
-from dotenv import load_dotenv
 
 # 匯入核心 NLP/RAG/Agent 元件
 from src.loaders.pdf_parser import DoubleColumnPDFParser
@@ -23,9 +22,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-# 載入 .env 檔案中的環境變數 (已停用，改為使用者介面手動輸入)
-# load_dotenv()
 
 # 設定 Streamlit 頁面屬性（必須放在最前面）
 st.set_page_config(
