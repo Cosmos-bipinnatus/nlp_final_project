@@ -13,10 +13,10 @@ def main():
         print("❌ 請提供 GEMINI_API_KEY 環境變數或輸入 API Key！")
         return
         
-    print(f"正在測試 gemini-embedding-2-preview batch 轉換...")
+    print(f"正在測試 gemini-embedding-2 batch 轉換...")
     try:
         embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-2-preview",
+            model="models/gemini-embedding-2",
             google_api_key=api_key
         )
         # 測試輸入多個字串

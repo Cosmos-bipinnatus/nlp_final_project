@@ -37,7 +37,7 @@ class AcademicLiteratureReviewGenerator:
                 model=self.model_name,
                 temperature=0.3,  # 適度調低溫度以保證學術論述的客觀嚴謹
                 google_api_key=api_key,
-                max_tokens=3072   # 增加 Token 上限以容納較長的文章生成
+                max_output_tokens=8192   # 使用原生 CJK 友善參數，加大上限至 8192 防止學術報告生成中斷
             )
             logger.info("成功初始化 AcademicLiteratureReviewGenerator。")
         except Exception as e:

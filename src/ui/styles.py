@@ -9,6 +9,39 @@ import streamlit as st
 # Glassmorphism 風格與流暢動畫的 CSS 樣式
 CUSTOM_CSS = """
 <style>
+    /* 隱藏 Streamlit 預設頂部控制列 (Deploy、三點選單、側邊欄收合鈕) */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+    
+    /* 調整主面板寬度與頂部間距，最大化操作空間並向兩側拉展 */
+    .block-container {
+        max-width: 95% !important;
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+
+    /* 頂部 API 金鑰狀態按鈕樣式 (綠色亮燈效果) */
+    .api-status-container>div>button {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+        color: white !important;
+        border: 1px solid rgba(16, 185, 129, 0.4) !important;
+        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35) !important;
+        font-weight: 700 !important;
+        border-radius: 30px !important;
+        font-size: 1rem !important;
+        padding: 6px 16px !important;
+        transition: all 0.3s ease !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+    .api-status-container>div>button:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5) !important;
+        border-color: #34d399 !important;
+    }
+
     /* 引入 Google Fonts 現代字體 */
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;400;700&display=swap');
     

@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+"""
+pdf_generator.py
+已重構：
+1. 採用 CJK (Droid Sans Fallback) 嵌入式字型，在每一頁創建時動態調用 insert_font 將字型 buffer 物理嵌入 PDF 中，
+   根本解決在手機、Mac 等平台的「need font file or buffer」與中文空白/亂碼問題。
+2. 採用「視覺字元寬度折行演算法」（ASCII寬度=1，非ASCII/中文寬度=2），解決英中混排早折行或溢出邊界的問題。
+"""
 import fitz
 import re
 from datetime import datetime
@@ -18,29 +25,53 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\n\s*\n', '\n\n', text)
     return text.strip()
 
-def wrap_text(text: str, chars_per_line: int) -> List[str]:
+def wrap_text(text: str, max_visual_width: int) -> List[str]:
     """
-    按固定字數對字串進行折行（因 china-t 為等寬 CJK 字型）。
+    根據字元視覺寬度（ASCII為1，非ASCII/中文為2）對字串進行智慧折行。
     """
     wrapped_lines = []
     for line in text.split("\n"):
         if not line:
             wrapped_lines.append("")
             continue
+            
+        current_line = []
+        current_width = 0
         
-        # 進行按字數切割
-        i = 0
-        while i < len(line):
-            wrapped_lines.append(line[i : i + chars_per_line])
-            i += chars_per_line
+        for char in line:
+            # 判斷是否為 ASCII 字元 (半寬計為 1，全寬計為 2)
+            char_width = 1 if ord(char) < 128 else 2
+            
+            if current_width + char_width > max_visual_width:
+                wrapped_lines.append("".join(current_line))
+                current_line = [char]
+                current_width = char_width
+            else:
+                current_line.append(char)
+                current_width += char_width
+                
+        if current_line:
+            wrapped_lines.append("".join(current_line))
+            
     return wrapped_lines
+
+def add_page(doc: fitz.Document, width: float, height: float, fontname: str, font_buffer: bytes) -> fitz.Page:
+    """
+    創建新頁面並立即將 CJK 字型緩衝區嵌入該頁面資源中。
+    這是解決 "need font file or buffer" 的關鍵！
+    """
+    page = doc.new_page(width=width, height=height)
+    page.insert_font(fontname=fontname, fontbuffer=font_buffer)
+    return page
 
 def generate_qa_pdf(chat_history: List[Dict[str, Any]]) -> bytes:
     """
     將對話歷史轉換為排版精美的 PDF 二進位資料。
     """
     doc = fitz.open()
-    fontname = "china-t"
+    cjk_font = fitz.Font("cjk")
+    font_buffer = cjk_font.buffer
+    fontname = "cjk"
     
     # 頁面規格 (A4)
     page_w = 595.3
@@ -53,9 +84,9 @@ def generate_qa_pdf(chat_history: List[Dict[str, Any]]) -> bytes:
     h2_size = 13
     body_size = 10
     line_h = 15
-    chars_per_line = int(usable_w / body_size) # 每行字數 (約 49 字)
+    chars_per_line = 90  # 基於視覺寬度的每行上限 (等同 90 個半寬英文或 45 個全寬中文)
     
-    page = doc.new_page(width=page_w, height=page_h)
+    page = add_page(doc, page_w, page_h, fontname, font_buffer)
     y = margin
     
     # 寫入主標題
@@ -74,20 +105,19 @@ def generate_qa_pdf(chat_history: List[Dict[str, Any]]) -> bytes:
         if role == "user":
             heading = f"提問 #{idx // 2 + 1}："
             content = msg.get("content", "")
-            color_heading = (0.06, 0.45, 0.55) # 深藍
+            color_heading = (0.06, 0.45, 0.55)  # 深藍
             color_text = (0.1, 0.1, 0.1)
         else:
             heading = "AI 學術導師分析："
             content = msg.get("plain_answer") or msg.get("content", "")
-            # 清除 HTML
             content = clean_html(content)
-            color_heading = (0.08, 0.57, 0.67) # 淺藍
+            color_heading = (0.08, 0.57, 0.67)  # 淺藍
             color_text = (0.2, 0.2, 0.2)
             
         # 寫入角色標題
         # 檢查是否需要分頁
         if y + 25 > page_h - margin:
-            page = doc.new_page(width=page_w, height=page_h)
+            page = add_page(doc, page_w, page_h, fontname, font_buffer)
             y = margin + 20
             
         page.insert_text((margin, y), heading, fontsize=h2_size, fontname=fontname, color=color_heading)
@@ -97,7 +127,7 @@ def generate_qa_pdf(chat_history: List[Dict[str, Any]]) -> bytes:
         lines = wrap_text(content, chars_per_line)
         for line in lines:
             if y > page_h - margin - 20:
-                page = doc.new_page(width=page_w, height=page_h)
+                page = add_page(doc, page_w, page_h, fontname, font_buffer)
                 y = margin + 20
             page.insert_text((margin, y), line, fontsize=body_size, fontname=fontname, color=color_text)
             y += line_h
@@ -106,7 +136,7 @@ def generate_qa_pdf(chat_history: List[Dict[str, Any]]) -> bytes:
         if role == "assistant" and msg.get("sources"):
             y += 5
             if y + 15 > page_h - margin:
-                page = doc.new_page(width=page_w, height=page_h)
+                page = add_page(doc, page_w, page_h, fontname, font_buffer)
                 y = margin + 20
             page.insert_text((margin, y), "📄 參考文獻來源：", fontsize=body_size - 1, fontname=fontname, color=(0.3, 0.6, 0.5))
             y += line_h
@@ -116,12 +146,12 @@ def generate_qa_pdf(chat_history: List[Dict[str, Any]]) -> bytes:
                 s_lines = wrap_text(f"- {s_clean}", chars_per_line)
                 for s_line in s_lines:
                     if y > page_h - margin - 20:
-                        page = doc.new_page(width=page_w, height=page_h)
+                        page = add_page(doc, page_w, page_h, fontname, font_buffer)
                         y = margin + 20
                     page.insert_text((margin + 10, y), s_line, fontsize=body_size - 1.5, fontname=fontname, color=(0.4, 0.4, 0.4))
                     y += line_h - 2
                     
-        y += 20 # 訊息間隔
+        y += 20  # 訊息間隔
         
     # 最後統一在每頁加上頁碼與裝飾線
     total_pages = len(doc)
@@ -142,7 +172,9 @@ def generate_comparison_pdf(comparison_data: List[Dict[str, Any]]) -> bytes:
     將跨文獻比較資料轉換為結構化排版 PDF 二進位資料。
     """
     doc = fitz.open()
-    fontname = "china-t"
+    cjk_font = fitz.Font("cjk")
+    font_buffer = cjk_font.buffer
+    fontname = "cjk"
     
     page_w = 595.3
     page_h = 841.9
@@ -154,9 +186,9 @@ def generate_comparison_pdf(comparison_data: List[Dict[str, Any]]) -> bytes:
     label_size = 10
     body_size = 10
     line_h = 15
-    chars_per_line = int(usable_w / body_size)
+    chars_per_line = 85  # 縮排後基於視覺寬度的每行上限
     
-    page = doc.new_page(width=page_w, height=page_h)
+    page = add_page(doc, page_w, page_h, fontname, font_buffer)
     y = margin
     
     # 寫入主標題
@@ -172,7 +204,7 @@ def generate_comparison_pdf(comparison_data: List[Dict[str, Any]]) -> bytes:
     for idx, paper in enumerate(comparison_data, 1):
         # 寫入論文大標題
         if y + 40 > page_h - margin:
-            page = doc.new_page(width=page_w, height=page_h)
+            page = add_page(doc, page_w, page_h, fontname, font_buffer)
             y = margin + 20
             
         paper_title = paper.get("title") or paper.get("pdf_file") or "未知論文"
@@ -193,7 +225,7 @@ def generate_comparison_pdf(comparison_data: List[Dict[str, Any]]) -> bytes:
         
         for label, val in sections:
             if y + 25 > page_h - margin:
-                page = doc.new_page(width=page_w, height=page_h)
+                page = add_page(doc, page_w, page_h, fontname, font_buffer)
                 y = margin + 20
                 
             # 寫入欄位標籤
@@ -205,13 +237,13 @@ def generate_comparison_pdf(comparison_data: List[Dict[str, Any]]) -> bytes:
             lines = wrap_text(val_clean, chars_per_line)
             for line in lines:
                 if y > page_h - margin - 20:
-                    page = doc.new_page(width=page_w, height=page_h)
+                    page = add_page(doc, page_w, page_h, fontname, font_buffer)
                     y = margin + 20
                 page.insert_text((margin + 15, y), line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
                 y += line_h
-            y += 8 # 欄位間隔
+            y += 8  # 欄位間隔
             
-        y += 15 # 論文間隔
+        y += 15  # 論文間隔
         
     # 最後統一在每頁加上頁碼與裝飾線
     total_pages = len(doc)
@@ -227,12 +259,24 @@ def generate_comparison_pdf(comparison_data: List[Dict[str, Any]]) -> bytes:
         
     return doc.tobytes()
 
+def add_review_page(doc: fitz.Document, width: float, height: float, fontname: str, font_buffer: bytes, margin: float) -> fitz.Page:
+    """
+    為綜述報告量身設計的頁面創建與裝飾條繪製方法。
+    """
+    page = doc.new_page(width=width, height=height)
+    page.insert_font(fontname=fontname, fontbuffer=font_buffer)
+    # 畫一條左側學術藍裝飾條
+    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, height - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
+    return page
+
 def generate_review_pdf(report_text: str) -> bytes:
     """
-    將 Markdown 格式的文獻回顧綜述報告轉換為排版精美的 PDF 二進位資料。 (B2)
+    將 Markdown 格式的文獻回顧綜述報告轉換為排版精美的 PDF 二進位資料。
     """
     doc = fitz.open()
-    fontname = "china-t"
+    cjk_font = fitz.Font("cjk")
+    font_buffer = cjk_font.buffer
+    fontname = "cjk"
     
     page_w = 595.3
     page_h = 841.9
@@ -243,13 +287,10 @@ def generate_review_pdf(report_text: str) -> bytes:
     h2_size = 13
     body_size = 10
     line_h = 16
-    chars_per_line = int(usable_w / body_size) # 每行字數 (約 49 字)
+    chars_per_line = 90  # 基於視覺寬度的每行上限
     
-    page = doc.new_page(width=page_w, height=page_h)
+    page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
     y = margin
-    
-    # 畫一條左側學術藍裝飾條
-    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
     
     lines = report_text.split("\n")
     for line in lines:
@@ -260,12 +301,10 @@ def generate_review_pdf(report_text: str) -> bytes:
             
         # 處理 Markdown 標題與格式
         if line_str.startswith("# "):
-            # 一級標題（主標題）
             text = line_str[2:].strip().replace("**", "")
             if y + 35 > page_h - margin:
-                page = doc.new_page(width=page_w, height=page_h)
+                page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
                 y = margin
-                page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
             page.insert_text((margin, y), text, fontsize=title_size, fontname=fontname, color=(0.02, 0.45, 0.55))
             y += 30
             # 畫底線
@@ -273,56 +312,46 @@ def generate_review_pdf(report_text: str) -> bytes:
             y += 10
             
         elif line_str.startswith("## "):
-            # 二級標題
             text = line_str[3:].strip().replace("**", "")
             if y + 28 > page_h - margin:
-                page = doc.new_page(width=page_w, height=page_h)
+                page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
                 y = margin
-                page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
-            y += 10 # 標題前留白
+            y += 10  # 標題前留白
             page.insert_text((margin, y), text, fontsize=h2_size, fontname=fontname, color=(0.02, 0.45, 0.55))
             y += 20
             
         elif line_str.startswith("### "):
-            # 三級標題
             text = line_str[4:].strip().replace("**", "")
             if y + 24 > page_h - margin:
-                page = doc.new_page(width=page_w, height=page_h)
+                page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
                 y = margin
-                page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
             page.insert_text((margin, y), text, fontsize=body_size + 1, fontname=fontname, color=(0.06, 0.55, 0.65))
             y += 18
             
         elif line_str.startswith("- ") or line_str.startswith("* "):
-            # 無序列表
             text = line_str[2:].strip().replace("**", "")
             wrapped_lines = wrap_text(f"•  {text}", chars_per_line)
             for w_line in wrapped_lines:
                 if y > page_h - margin - 20:
-                    page = doc.new_page(width=page_w, height=page_h)
+                    page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
                     y = margin
-                    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
                 page.insert_text((margin + 10, y), w_line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
                 y += line_h
                 
         elif re.match(r'^\d+\.\s', line_str):
-            # 有序列表
             match = re.match(r'^(\d+\.\s)(.*)', line_str)
             prefix = match.group(1)
             text = match.group(2).strip().replace("**", "")
             wrapped_lines = wrap_text(f"{prefix}{text}", chars_per_line)
             for w_line in wrapped_lines:
                 if y > page_h - margin - 20:
-                    page = doc.new_page(width=page_w, height=page_h)
+                    page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
                     y = margin
-                    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
                 page.insert_text((margin, y), w_line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
                 y += line_h
                 
         else:
-            # 普通段落文字
             text = line_str.replace("**", "")
-            # 簡單處理 Markdown 區塊引言
             indent = 0
             if text.startswith(">"):
                 text = text[1:].strip()
@@ -331,9 +360,8 @@ def generate_review_pdf(report_text: str) -> bytes:
             wrapped_lines = wrap_text(text, chars_per_line - (indent // 10))
             for w_line in wrapped_lines:
                 if y > page_h - margin - 20:
-                    page = doc.new_page(width=page_w, height=page_h)
+                    page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
                     y = margin
-                    page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, page_h - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
                 page.insert_text((margin + indent, y), w_line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
                 y += line_h
                 

@@ -6,7 +6,7 @@
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://nlpfinalproject.streamlit.app/)
 
 **🌐 雲端線上演示版：** [https://nlpfinalproject.streamlit.app/](https://nlpfinalproject.streamlit.app/)
-*(進入網頁後，於側邊欄「專案控制台」手動輸入您的 Gemini API Key 即可立刻開始體驗)*
+*(進入網頁後，於網頁右上方手動輸入您的 Gemini API Key 即可立刻開始体验)*
 
 ---
 
@@ -16,7 +16,7 @@
 
 1. **雙欄排版還原**：精確處理學術論文常見的雙欄 (Double-column) 排版，避免文字閱讀順序錯亂。
 2. **啟發式元數據提取**：在 PDF 上傳時，自動識別並提取論文的 **標題 (Title)、作者 (Author) 及 摘要 (Abstract)**，將其整合至 Chunk Metadata 中。
-3. **語意切塊與向量化**：將論文拆分為語意連貫的文本切塊，並使用 Google Gemini 的 `models/gemini-embedding-2-preview` 轉為 3072 維語意向量，持久化儲存於本地 ChromaDB。
+3. **語意切塊與向量化**：將論文拆分為語意連貫的文本切塊，並使用 Google Gemini 的 `models/gemini-embedding-2` 轉為 3072 維語意向量，持久化儲存於本地 ChromaDB。
 4. **AI 學術問答與精確引用**：以 RAG (檢索增強生成) 技術，根據檢索到的原始文獻段落生成學術分析，每句關鍵結論皆附帶精確的引用標記，如 `[論文名.pdf, p.5]`。
 5. **智慧路由代理 (Router Agent)**：AI 自動分析使用者提問的語意，決定路由至「本地文獻庫 (RAG)」、「外接 ArXiv 線上學術庫 (API)」，或是「混合檢索融合 (Blended Search)」，並在網頁上完整展示其思考歷程與決策原因。
 6. **跨文獻比較矩陣 (Comparison Grid)**：自動從多篇論文中提煉核心方法、實驗資料集、優缺點，生成結構化的交叉比較表格，支援一鍵下載為 A4 PDF 報告。
@@ -31,7 +31,7 @@
 | 核心語言 | `Python 3.11` | 專案指定版本 |
 | 套件管理 | `uv` | 極速 Python 套件管理器，取代 pip/pipenv |
 | LLM 框架 | `LangChain` | 模組化的 LLM 應用開發框架 |
-| 模型 API | `Google Gemini API` | 使用 `gemini-2.5-flash`（生成）與 `models/gemini-embedding-2-preview`（3072維嵌入） |
+| 模型 API | `Google Gemini API` | 使用 `gemini-2.5-flash`（生成）與 `models/gemini-embedding-2`（3072維嵌入） |
 | LLM 整合 | `langchain-google-genai` | LangChain 與 Gemini 的官方整合套件 |
 | 結構化驗證 | `Pydantic v2` | 用於 LLM `with_structured_output` 結構化路由與特徵提取 |
 | PDF 解析 | `PyMuPDF (fitz)` | 處理複雜雙欄排版與提取頁碼 Metadata |
@@ -139,7 +139,7 @@ uv sync
 
 ### Step 4：取得 Gemini API Key
 
-本系統已全面重構為「介面端手動輸入金鑰」，因此您不需要在本機配置任何 `.env` 檔案或設定系統環境變數！您只需造訪 [Google AI Studio](https://aistudio.google.com/apikey) 免費申請一個 Gemini API Key，並在啟動 Web UI 後，直接於網頁左側的「專案控制台」中輸入即可啟動服務。這使本系統非常安全且適合線上共享部署。
+本系統已全面重構為「介面端手動輸入金鑰」，因此您不需要在本機配置任何 `.env` 檔案或設定系統環境變數！您只需造訪 [Google AI Studio](https://aistudio.google.com/apikey) 免費申請一個 Gemini API Key，並在啟動 Web UI 後，直接於網頁右上方的「Gemini API Key」控制區中輸入即可啟動服務。這使本系統非常安全且適合線上共享部署。
 
 ### Step 5：建立必要的資料夾
 
@@ -167,7 +167,7 @@ Streamlit 會自動在瀏覽器開啟 `http://localhost:8501`，即可開始使�
 
 1. 將學術 PDF 論文（支援雙欄排版）拖曳至上傳區。
 2. 系統會自動解析論文並安全存入 `data/` 資料夾，且**自動啟動啟發式特徵提取**（Title, Author, Abstract）。
-3. 前往左側控制台，點擊 **「🔄 向量化本地文獻庫」** 將論文轉換為語意向量（若重複上傳，系統會自動啟動 **Ingestion Guard** 刪除舊向量）。
+3. 在下方點擊 **「🔄 向量化本地文獻庫」** 將論文轉換為語意向量（若重複上傳，系統會自動啟動 **Ingestion Guard** 刪除舊向量）。
 
 ### 🔍 Tab 2：語意檢索與召回測試
 
@@ -235,7 +235,7 @@ uv run python tests/test_comparison.py
 | 模型 | 限制 | 說明 |
 |:---|:---|:---|
 | `gemini-2.5-flash` | 20 RPM | 每分鐘最多 20 次生成請求 |
-| `models/gemini-embedding-2-preview` | 1,500 RPM | 每分鐘最多 1,500 次嵌入請求 |
+| `models/gemini-embedding-2` | 1,500 RPM | 每分鐘最多 1,500 次嵌入請求 |
 
 ### 應對策略
 
@@ -252,7 +252,7 @@ uv run python tests/test_comparison.py
 graph TD
     User([使用者上傳 PDF]) --> Parser[雙欄 PDF 解析器<br>PyMuPDF + 啟發式元數據提取]
     Parser --> Splitter[語意文本切塊器<br>RecursiveCharacterTextSplitter]
-    Splitter --> Embeddings[Gemini Embeddings<br>models/gemini-embedding-2-preview]
+    Splitter --> Embeddings[Gemini Embeddings<br>models/gemini-embedding-2]
     Embeddings --> IngestionGuard{ChromaDB 寫入<br>Ingestion Guard 防重入}
     IngestionGuard -->|清空舊 Chunk| ChromaDB[(ChromaDB<br>本地持久化向量庫)]
     
@@ -297,7 +297,7 @@ graph TD
 
 本專案已成功自動化部署於 **Streamlit Community Cloud**！
 *   **線上體驗網址**：[https://nlpfinalproject.streamlit.app/](https://nlpfinalproject.streamlit.app/)
-*   **使用方式**：造訪網頁後，請在左側側邊欄的控制台輸入您在 Google AI Studio 申請的 `Gemini API Key`（系統採用加密密碼輸入且僅儲存於本機瀏覽器會話中，非常安全），即可開始進行論文上傳、語意相似檢索、多輪問答代理路由與比較矩陣導出。
+*   **使用方式**：造訪網頁後，請在網頁右上方的「Gemini API Key」控制區輸入您在 Google AI Studio 申請的 `Gemini API Key`（系統採用加密密碼輸入且僅儲存於本機瀏覽器會話中，非常安全），即可開始進行論文上傳、語意相似檢索、多輪問答代理路由與比較矩陣導出。
 
 > 💡 **離線預建置向量庫**：為確保雲端網頁一開啟就能直接進行 Demo，我們在本機預先將 BERT 與 Transformer 等經典論文進行了解析與向量化，並將 `vectorstore/` 的 SQLite 索引目錄直接提交到了 GitHub 中。這使得線上環境擁有「隨開即用」的唯讀向量索引，解決了免費雲端容器重啟後本機資料庫被清空的痛點。
 
@@ -314,7 +314,7 @@ graph TD
 5. **脈動骨架屏加載動畫**：在 Tab 2、Tab 3、Tab 4 與 Tab 5 的長時間 API 等待階段，以閃爍脈動的卡片骨架屏 (Skeleton Screen) 代替單調的 loading 圈圈，大幅提升視覺高質感。
 6. **重複文獻防重入與自動覆蓋 (Ingestion Guard)**：重寫 `store_documents`，在寫入新論文前會自動比對並清空 ChromaDB 中舊有的同名 Chunk 向量，保證資料乾淨性。
 7. **啟發式學術元數據提取 (Heuristic Metadata Extraction)**：擴充 PyMuPDF 解析管道，利用正則與字體大小啟發式演算法自動提取學術 PDF 的 標題 (Title)、作者 (Author) 及 摘要 (Abstract) 等，並存為 metadata。
-8. **向量庫維度不符自癒機制 (Vector Dim Self-Healing)**：在升級嵌入模型至 `models/gemini-embedding-2-preview` (3072維) 時，若資料庫檢測到既有向量維度不符 (768維)，會自動執行重置與重建，避免系統拋出維度不符異常而崩潰。
+8. **向量庫維度不符自癒機制 (Vector Dim Self-Healing)**：在升級嵌入模型至 `models/gemini-embedding-2` (3072維) 時，若資料庫檢測到既有向量維度不符 (768維)，會自動執行重置與重建，避免系統拋出維度不符異常而崩潰。
 9. **代理人混合路由與檢索融合 (Hybrid Routing & Blended Search)**：Routing Agent 支持 `both` 融合決策，並行查本地庫與 ArXiv，融合生成最新的綜述回答。
 10. **全域中央配置與日誌重構**：提取全域設定至 `src/config/settings.py`，並建立了統一的 `logger.py` 日誌記錄系統，實踐標準軟體工程規範。
 

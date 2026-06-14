@@ -80,14 +80,16 @@ class AcademicVectorManager:
                 logger.error(f"初始化 ChromaDB 時發生異常: {e}")
                 raise e
 
-    def store_documents(self, documents: List[Document]) -> None:
+    def store_documents(self, documents: List[Document], progress_callback = None) -> None:
         """
         將切塊後的 LangChain Document 轉換為向量並存入本地 ChromaDB 中。
-        採用分批寫入 (Batching) 與指數退避重試機制，以避免 Gemini Embeddings API 的 429 速率限制錯誤。
+        採用小分批寫入 (Batching) 與指數退避重試機制，以避免 Gemini Embeddings API 的 429 速率限制錯誤。
         本方法具備「重複文件偵測與覆蓋」功能 (C3)，若偵測到相同來源的文獻已存在，會自動先清空舊的切塊再寫入。
         
         Args:
             documents (List[Document]): 待存入的切塊 Document 物件清單
+            progress_callback (Callable[[int, int, int, str], None], optional): 進度回呼函式。
+                格式為 callback(current_batch, total_batches, remaining_seconds, status_type)
         """
         if not documents:
             logger.warning("輸入的 Document 清單為空，跳過寫入。")
@@ -110,27 +112,42 @@ class AcademicVectorManager:
             
         from src.utils.retry_handler import retry_on_429
         
-        # 設定每批次寫入的數量，避免單次 API 請求的 Payload 過大而觸發 rate limit
+        # 根本解決 429 限流：縮小 batch_size 至 15 (單次請求約 4500-6000 tokens，絕不擊穿 30K TPM)
         batch_size = 15
         total_chunks = len(documents)
+        total_batches = (total_chunks + batch_size - 1) // batch_size
         
         try:
             for i in range(0, total_chunks, batch_size):
                 batch = documents[i : i + batch_size]
                 batch_num = i // batch_size + 1
-                total_batches = (total_chunks + batch_size - 1) // batch_size
                 
                 logger.info(f"正在向量化寫入第 {batch_num}/{total_batches} 批，共 {len(batch)} 個切塊...")
+                
+                # 更新 UI：正在發送 API 請求
+                if progress_callback:
+                    try:
+                        progress_callback(batch_num, total_batches, 0, "writing")
+                    except Exception as cb_err:
+                        logger.warning(f"進度回呼調用失敗: {cb_err}")
                 
                 # 使用 retry_on_429 包裝 add_documents 呼叫，若遇到限流會自動等待重試
                 retry_on_429(self.vector_db.add_documents, batch)
                 
                 # 根本解決 429 限流：自適應主動流量平滑延遲 (Adaptive Rate Limiting Sleep)
-                # 免費方案 API 短時間高密度發送請求極易耗盡 QPM/TPM 配額，
-                # 若還有下一批次，主動 sleep 1.2 秒可將密集請求在時間軸上平滑分散，有效消除 429 發生。
+                # 免費方案 API 累計 TPM 限額 30K，在完成一批次寫入後，
+                # 若還有下一批次，主動 sleep 15 秒以平滑流量，並透過 callback 逐秒回傳倒數以更新 UI。
                 if i + batch_size < total_chunks:
-                    import time
-                    time.sleep(1.2)
+                    cool_down = 15
+                    logger.info(f"第 {batch_num} 批寫入完成，啟動 15 秒流量平滑冷卻...")
+                    for sec in range(cool_down, 0, -1):
+                        if progress_callback:
+                            try:
+                                progress_callback(batch_num, total_batches, sec, "cooling")
+                            except Exception as cb_err:
+                                pass
+                        import time
+                        time.sleep(1)
                 
             logger.info("ChromaDB 所有批次寫入成功！數據已持久化儲存。")
         except Exception as e:

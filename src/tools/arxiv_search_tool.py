@@ -47,7 +47,7 @@ class ArXivSearchTool:
             model=self.model_name,
             google_api_key=api_key,
             temperature=0.3,  # 稍微提高一點以利語言翻譯流暢性，但仍保持事實精準性
-            max_tokens=2560
+            max_output_tokens=4096
         )
         logger.info("ArXiv 搜尋工具初始化成功。")
 

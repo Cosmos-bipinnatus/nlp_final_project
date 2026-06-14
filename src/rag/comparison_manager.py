@@ -182,8 +182,9 @@ class AcademicComparisonManager:
             
         logger.info(f"開始生成跨文獻比較矩陣，共 {len(pdf_names)} 篇文獻: {pdf_names}")
         comparison_results = []
+        total_papers = len(pdf_names)
         
-        for pdf_name in pdf_names:
+        for idx, pdf_name in enumerate(pdf_names):
             try:
                 features = self.extract_features_for_paper(pdf_name)
                 comparison_results.append({
@@ -204,6 +205,13 @@ class AcademicComparisonManager:
                     "pros": "無資料",
                     "cons": "無資料"
                 })
+            
+            # 根本解決 429 限流：每處理完一篇文獻（包含相似搜尋與 LLM 結構化輸出），且還有下一篇，
+            # 主動冷卻 5 秒以平滑流量，防止因連續突發請求擊穿 Free Tier 的 RPM 或 QPS 限制
+            if idx < total_papers - 1:
+                import time
+                logger.info(f"完成第 {idx + 1}/{total_papers} 篇特徵提取，主動冷卻 5.0 秒後再繼續下一篇...")
+                time.sleep(5.0)
                 
         return comparison_results
 

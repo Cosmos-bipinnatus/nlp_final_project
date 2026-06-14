@@ -23,12 +23,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 設定 Streamlit 頁面屬性（必須放在最前面）
+# 設定 Streamlit 頁面屬性（預設摺疊側邊欄以最大化主介面空間）
 st.set_page_config(
     page_title="Literature Reviewer - 學術論文文獻回顧系統",
     page_icon="📚",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # 確保必要目錄存在 (已在 config.settings 初始化)
@@ -38,9 +38,15 @@ st.set_page_config(
 # ==========================================
 render_styles()
 
-# 初始化側邊欄活動狀態（避免重試提示被擠壓）
+# 初始化全域 Session State 變數
 if "sidebar_active" not in st.session_state:
     st.session_state["sidebar_active"] = False
+
+if "gemini_api_key_val" not in st.session_state:
+    st.session_state["gemini_api_key_val"] = ""
+
+if "show_api_key_input" not in st.session_state:
+    st.session_state["show_api_key_input"] = True
 
 # ==========================================
 # 3. 初始化 RAG 向量管理員與問答生成器
@@ -75,23 +81,8 @@ def init_comparison_manager(api_key: str, model_name: str, _vector_manager=None)
     os.environ["GEMINI_API_KEY"] = api_key
     return AcademicComparisonManager(persist_directory=str(VECTORSTORE_DIR), vector_manager=_vector_manager)
 
-# 優先建立側邊欄 API Key 輸入框
-with st.sidebar:
-    st.markdown("### 🛠️ <span class='sidebar-title'>專案控制台</span>", unsafe_allow_html=True)
-    st.info("這裡可上傳文獻、啟動/重置向量引擎，並動態監控系統狀態。")
-    
-    st.markdown("---")
-    st.markdown("#### 🔑 金鑰狀態")
-    gemini_api_key = st.text_input(
-        label="請輸入您的 Gemini API Key",
-        type="password",
-        placeholder="AI Studio 申請的 API 金鑰...",
-        help="部署或本機測試時，請在此輸入您的 Gemini API Key。此金鑰僅用於本瀏覽器會話，不會被儲存。"
-    )
-    if gemini_api_key:
-        st.success("🟢 API Key 已輸入")
-    else:
-        st.error("❌ 請輸入 API Key 以啟用服務")
+# 從 Session State 取得使用者輸入的 API 金鑰以啟用後續引擎初始化
+gemini_api_key = st.session_state.get("gemini_api_key_val", "")
 
 # 使用快取函式進行安全初始化
 vector_manager = None
@@ -217,234 +208,66 @@ def save_uploaded_files(uploaded_files: list) -> tuple[int, int, list[str]]:
 # 5. Streamlit 主視覺 UI 排版
 # ==========================================
 
-# 頂部視覺 Banner
-render_hero_banner()
+# 頂部視覺標題 (改用簡潔的無背景漸層文字，避免過度擁擠的卡片)
+# 頂部雙欄配置：左側為系統標題與介紹，右側為 API 金鑰輸入與亮綠燈按鈕
+col_title, col_key = st.columns([9, 3])
 
-# 左右雙欄配置 (側邊欄 Sidebar + 主面板 Main Panel)
-with st.sidebar:
-    # 這裡承接上方已渲染的 API Key 控制面板，直接開始顯示系統元件狀態
+with col_title:
+    st.markdown(
+        """
+        <div style="padding: 10px 0;">
+            <h1 style="font-size: 2.6rem; font-weight: 800; margin: 0; background: linear-gradient(to right, #38bdf8, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                Literature Reviewer 📚
+            </h1>
+            <p style="font-size: 1.05rem; color: #94a3b8; margin-top: 6px; margin-bottom: 0;">
+                大二資工系專題：基於 Google Gemini 2.5-Flash 與雙欄排版還原的學術文獻 RAG 系統
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+with col_key:
+    # 垂直對齊占位
+    st.write("")
+    st.write("")
     
-    # --- 2. 向量引擎狀態區 ---
-    st.markdown("---")
-    st.markdown("#### 🧠 向量庫引擎狀態")
-    if vector_manager:
-        try:
-            chunk_count = vector_manager.get_collection_count()
-            if chunk_count > 0:
-                st.success(f"🟢 已啟用 | 累計 {chunk_count} 個切塊")
-            else:
-                st.warning("⚪ 已連結 | 目前資料庫為空")
-        except Exception as e:
-            st.error(f"❌ 資料庫異常: {e}")
-    else:
-        st.error("❌ 向量庫未啟用")
-        st.caption(f"錯誤原因：{db_error_msg}")
-
-    # --- 3. RAG 生成引擎狀態區 ---
-    st.markdown("---")
-    st.markdown("#### 🤖 AI 生成問答狀態")
-    if rag_generator:
-        st.success(f"🟢 已啟用 | 模型: {rag_generator.model_name}")
-    else:
-        st.error("❌ 生成引擎未啟用")
-        st.caption(f"錯誤原因：{rag_error_msg}")
-
-    # --- 3-b. 學術路由代理狀態區 (Week 5) ---
-    st.markdown("---")
-    st.markdown("#### 🧭 學術路由代理狀態")
-    if academic_agent:
-        st.success(f"🟢 已啟用 | 模式: Pydantic 結構化路由")
-    else:
-        st.error("❌ 路由代理未啟用")
-        st.caption(f"錯誤原因：{agent_error_msg}")
-
-    # --- 3-c. 跨文獻比較矩陣狀態區 (Week 6) ---
-    st.markdown("---")
-    st.markdown("#### 📊 比較矩陣引擎狀態")
-    if comparison_manager:
-        st.success(f"🟢 已啟用 | 模式: Pydantic 結構化特徵提取")
-    else:
-        st.error("❌ 比較引擎未啟用")
-        st.caption(f"錯誤原因：{comparison_error_msg}")
-
-
-    # --- 4. 本地文獻統計區 ---
-    st.markdown("---")
-    st.markdown("#### 📂 本地文獻庫統計")
-    existing_pdfs = list(DATA_DIR.glob("*.pdf"))
-    st.metric(label="已上傳論文 PDF 數", value=len(existing_pdfs))
+    # 檢查是否有金鑰值
+    has_key = len(st.session_state.get("gemini_api_key_val", "").strip()) > 0
     
-    if len(existing_pdfs) > 0:
-        st.write("📄 文獻清單：")
-        
-        # 獲取當前已向量化的來源清單 (Option D)
-        vectorized_sources = vector_manager.get_unique_sources() if vector_manager else []
-        
-        for i, pdf in enumerate(existing_pdfs, 1):
-            is_vectorized = pdf.name in vectorized_sources
-            status_emoji = "🟢" if is_vectorized else "⚪"
-            
-            # 使用雙欄配置顯示檔名與操作按鈕
-            col_pdf_name, col_actions = st.columns([7, 3])
-            
-            with col_pdf_name:
-                st.caption(f"{status_emoji} {i}. {pdf.name}")
-                
-            with col_actions:
-                col_v, col_d = st.columns(2)
-                
-                # A. 向量化按鈕：若尚未向量化，顯示單篇向量化按鈕
-                with col_v:
-                    if not is_vectorized:
-                        if st.button("🔄", key=f"btn_vec_single_{pdf.name}", help=f"單篇向量化: {pdf.name}"):
-                            st.session_state["sidebar_active"] = True
-                            progress_bar = st.sidebar.progress(0)
-                            status_text = st.sidebar.empty()
-                            try:
-                                status_text.info(f"📖 正在解析雙欄排版...")
-                                parser = DoubleColumnPDFParser(pdf)
-                                parsed_pages = parser.parse_pdf()
-                                progress_bar.progress(30)
-                                
-                                status_text.info(f"✂️ 正在進行語意切塊...")
-                                splitter = AcademicTextSplitter(chunk_size=600, chunk_overlap=120)
-                                chunks = splitter.split_parsed_documents(parsed_pages)
-                                progress_bar.progress(60)
-                                
-                                if chunks:
-                                    status_text.info(f"🚀 正在寫入向量庫...")
-                                    vector_manager.store_documents(chunks)
-                                    progress_bar.progress(100)
-                                    st.sidebar.success(f"🎉 論文 `{pdf.name}` 向量化成功！")
-                                    st.balloons()
-                                    st.session_state["sidebar_active"] = False
-                                    st.rerun()
-                                else:
-                                    st.sidebar.warning("⚠️ 未能產生有效的文本切塊！")
-                            except Exception as e:
-                                st.sidebar.error(f"❌ 向量化失敗: {e}")
-                            finally:
-                                status_text.empty()
-                                progress_bar.empty()
-                                st.session_state["sidebar_active"] = False
-                    else:
-                        st.write("") # 佔位
-                        
-                # B. 刪除按鈕：物理刪除實體檔案與 ChromaDB 向量，並清理比較矩陣快取
-                with col_d:
-                    if st.button("🗑️", key=f"btn_del_single_{pdf.name}", help=f"刪除此論文與向量: {pdf.name}"):
-                        try:
-                            # 1. 刪除 ChromaDB 中的向量
-                            if vector_manager:
-                                vector_manager.delete_by_source(pdf.name)
-                            # 2. 物理刪除檔案
-                            if pdf.exists():
-                                pdf.unlink()
-                            # 3. 清理比較對應之 Session State 快取
-                            if "comparison_data" in st.session_state and st.session_state.comparison_data:
-                                st.session_state.comparison_data = [
-                                    item for item in st.session_state.comparison_data if item["pdf_file"] != pdf.name
-                                ]
-                                if pdf.name in st.session_state.comparison_pdf_set:
-                                    st.session_state.comparison_pdf_set.discard(pdf.name)
-                                    
-                            st.success(f"🧹 已成功刪除 `{pdf.name}` 及其向量資料！")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ 刪除失敗: {e}")
-            
-    # --- 5. 向量引擎控制按鈕 (移至 if len(existing_pdfs) > 0 之外，不論文獻庫是否為空皆顯示) ---
-    st.markdown("---")
-    st.markdown("#### ⚡ 向量引擎控制")
-    
-    # 檢查是否有巨型 PDF 論文/書籍 (單篇大於 50 頁)
-    has_large_pdf = False
-    large_pdf_names = []
-    for pdf_path in existing_pdfs:
-        try:
-            import fitz
-            doc = fitz.open(pdf_path)
-            if len(doc) > 50:
-                has_large_pdf = True
-                large_pdf_names.append(pdf_path.name)
-            doc.close()
-        except Exception:
-            pass
-            
-    if has_large_pdf:
-        st.warning(
-            f"💡 **偵測到巨型書籍/文獻**：\n"
-            f"文獻 {', '.join([f'`{n}`' for n in large_pdf_names])} 超過 50 頁。一鍵向量化整本巨著極易擊穿免費 API 配額。\n\n"
-            f"**強烈建議**：使用上方文獻清單個別論文旁的 **「🔄」** 按鈕進行「單篇向量化」，分次有間隔地寫入以維持系統穩定。"
+    if has_key:
+        # 當輸入完成後，顯示亮綠燈 "已啟用" 狀態藥丸按鈕
+        st.markdown('<div class="api-status-container">', unsafe_allow_html=True)
+        if st.button("🟢 已啟用", key="btn_api_status", use_container_width=True, help="點擊此處展開/隱藏金鑰輸入框以進行修改"):
+            st.session_state["show_api_key_input"] = not st.session_state.get("show_api_key_input", False)
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        # 若無金鑰則強制顯示輸入框
+        st.session_state["show_api_key_input"] = True
+
+    # 渲染輸入框
+    if st.session_state.get("show_api_key_input", True):
+        api_key_input = st.text_input(
+            label="請輸入您的 Gemini API Key",
+            type="password",
+            placeholder="請輸入 Gemini API Key 以啟用服務...",
+            value=st.session_state.get("gemini_api_key_val", ""),
+            key="api_key_input_widget",
+            label_visibility="collapsed"
         )
-    
-    # 向量化本地庫按鈕
-    if vector_manager:
-        st.markdown('<div class="vectorize-btn">', unsafe_allow_html=True)
-        if st.button("🔄 向量化本地文獻庫", key="btn_vectorize", use_container_width=True):
-            if not existing_pdfs:
-                st.warning("⚠️ 目前本地文獻目錄 `data/` 中沒有任何 PDF 檔案！請先前往「📥 論文上傳與存檔」分頁上傳論文。")
-            else:
-                st.session_state["sidebar_active"] = True
-                # 建立多層 Loading 動畫
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                try:
-                    status_text.info("🧹 正在初始化乾淨的向量空間...")
-                    vector_manager.clear_database()
-                    progress_bar.progress(10)
-                    
-                    all_chunks = []
-                    total_files = len(existing_pdfs)
-                    
-                    for idx, pdf_path in enumerate(existing_pdfs, 1):
-                        status_text.info(f"📖 正在解析雙欄排版 ({idx}/{total_files}): `{pdf_path.name}`...")
-                        parser = DoubleColumnPDFParser(pdf_path)
-                        parsed_pages = parser.parse_pdf()
-                        
-                        status_text.info(f"✂️ 正在進行語意切塊 ({idx}/{total_files}): `{pdf_path.name}`...")
-                        splitter = AcademicTextSplitter(chunk_size=600, chunk_overlap=120)
-                        chunks = splitter.split_parsed_documents(parsed_pages)
-                        all_chunks.extend(chunks)
-                        
-                        progress_bar.progress(int(10 + (idx / total_files) * 50))
-                        
-                    if all_chunks:
-                        status_text.info(f"🚀 正在將 {len(all_chunks)} 個切塊批次向量化並寫入 ChromaDB...")
-                        # 呼叫 models/gemini-embedding-001 批次向量化
-                        vector_manager.store_documents(all_chunks)
-                        
-                        progress_bar.progress(100)
-                        status_text.empty()
-                        st.success(f"🎉 成功向量化 {total_files} 篇文獻，生成 {len(all_chunks)} 個語意切塊！")
-                        st.balloons()
-                        st.session_state["sidebar_active"] = False
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ 未能產生有效的文本切塊！")
-                        
-                except Exception as e:
-                    status_text.empty()
-                    st.error(f"❌ 向量化失敗: {e}")
-                    logger.error(f"向量化失敗: {e}")
-                finally:
-                    st.session_state["sidebar_active"] = False
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # 清空資料庫按鈕
-        st.markdown('<div class="clear-btn">', unsafe_allow_html=True)
-        if st.button("🗑️ 清空向量資料庫", key="btn_clear", use_container_width=True):
-            try:
-                vector_manager.clear_database()
-                st.success("🧹 向量庫已清空！")
-                st.rerun()
-            except Exception as e:
-                st.error(f"清空失敗: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # 狀態值發生變更則即時更新與重新載入
+        if api_key_input != st.session_state.get("gemini_api_key_val", ""):
+            st.session_state["gemini_api_key_val"] = api_key_input
+            if api_key_input.strip():
+                st.session_state["show_api_key_input"] = False
+            st.rerun()
 
-# 主面板 layout
-col_main, col_spacer = st.columns([12, 1])
+# 移除側邊欄的所有監控狀態，使介面極淨化並釋放側邊空間
+pass
+
+# 主面板 layout (移除了側欄與右側 spacer 欄位以拉大主面板寬度)
+col_main = st.container()
 
 with col_main:
     # 創建標籤頁：1. 上傳論文 2. 語意相似度檢索 3. AI文獻問答與引用定位 4. 跨文獻比較矩陣 5. 文獻回顧綜述
@@ -460,7 +283,7 @@ with col_main:
     # Tab 1: 論文上傳與存檔
     # ==========================================
     with tab_upload:
-        st.markdown("### 📥 多文獻 PDF 上傳區")
+        st.markdown("### 📥 多文獻 PDF 上傳與引擎管理區")
         st.write("請將您想要分析的學術論文（支援雙欄 PDF）拖曳至下方：")
         
         uploaded_files = st.file_uploader(
@@ -487,10 +310,207 @@ with col_main:
                 
             if saved > 0:
                 st.success(f"🎉 成功存檔 {saved} 篇文獻！檔案已安全存放至本機 `{DATA_DIR}/` 目錄。")
-                st.info("💡 貼心提示：檔案已存檔！請前往左側控制台，點擊 **「🔄 向量化本地文獻庫」** 即可將論文轉換成語意向量，進行語意檢索。")
+                st.info("💡 貼心提示：檔案已存檔！請在下方點擊 **「🔄 向量化本地文獻庫」** 即可將論文轉換成語意向量，進行語意檢索。")
                 st.balloons()
             elif skipped > 0:
                 st.info("ℹ️ 本次上傳的檔案皆已存在於文獻庫中，已為您自動跳過。")
+
+        st.markdown("---")
+        
+        # 建立全域進度與狀態佔位符，使進度條與警告文字能在外層大容器完整展開，防範窄列（如 15% 寬度）擠壓變形
+        global_progress_placeholder = st.empty()
+        global_status_placeholder = st.empty()
+        
+        # 建立左右雙欄：左側為本地文獻統計，右側為向量引擎控制
+        col_list, col_engine = st.columns([6, 6])
+        
+        with col_list:
+            st.markdown("#### 📂 本地文獻庫統計")
+            existing_pdfs = list(DATA_DIR.glob("*.pdf"))
+            st.metric(label="已上傳論文 PDF 數", value=len(existing_pdfs))
+            
+            if len(existing_pdfs) > 0:
+                st.write("📄 文獻清單：")
+                
+                # 獲取當前已向量化的來源清單
+                vectorized_sources = vector_manager.get_unique_sources() if vector_manager else []
+                
+                for i, pdf in enumerate(existing_pdfs, 1):
+                    is_vectorized = pdf.name in vectorized_sources
+                    status_emoji = "🟢" if is_vectorized else "⚪"
+                    
+                    col_pdf_name, col_actions = st.columns([7, 3])
+                    
+                    with col_pdf_name:
+                        st.caption(f"{status_emoji} {i}. {pdf.name}")
+                        
+                    with col_actions:
+                        col_v, col_d = st.columns(2)
+                        
+                        # A. 向量化按鈕：若尚未向量化，顯示單篇向量化按鈕
+                        with col_v:
+                            if not is_vectorized:
+                                if st.button("🔄", key=f"btn_vec_single_{pdf.name}", help=f"單篇向量化: {pdf.name}"):
+                                    progress_bar = global_progress_placeholder.progress(0)
+                                    status_text = global_status_placeholder.empty()
+                                    try:
+                                        status_text.info(f"📖 正在解析雙欄排版...")
+                                        parser = DoubleColumnPDFParser(pdf)
+                                        parsed_pages = parser.parse_pdf()
+                                        progress_bar.progress(30)
+                                        
+                                        status_text.info(f"✂️ 正在進行語意切塊...")
+                                        splitter = AcademicTextSplitter(chunk_size=600, chunk_overlap=120)
+                                        chunks = splitter.split_parsed_documents(parsed_pages)
+                                        progress_bar.progress(60)
+                                        
+                                        if chunks:
+                                            def single_callback(batch_num, total_batches, remaining_sec, status):
+                                                if status == "writing":
+                                                    status_text.info(f"🚀 正在將第 **{batch_num}/{total_batches}** 批寫入向量庫，請稍候...")
+                                                    progress_bar.progress(int(60 + (batch_num - 1) / total_batches * 38))
+                                                elif status == "cooling":
+                                                    status_text.warning(
+                                                        f"⏳ **流量平滑防護中 (30K TPM 限流避坑)**...\n"
+                                                        f"第 **{batch_num}/{total_batches}** 批寫入成功。安全冷卻倒數：**{remaining_sec}** 秒..."
+                                                    )
+                                                    progress_bar.progress(int(60 + batch_num / total_batches * 38))
+                                            vector_manager.store_documents(chunks, progress_callback=single_callback)
+                                            progress_bar.progress(100)
+                                            st.success(f"🎉 論文 `{pdf.name}` 向量化成功！")
+                                            st.balloons()
+                                            st.rerun()
+                                        else:
+                                            st.warning("⚠️ 未能產生有效的文本切塊！")
+                                    except Exception as e:
+                                        st.error(f"❌ 向量化失敗: {e}")
+                                    finally:
+                                        global_status_placeholder.empty()
+                                        global_progress_placeholder.empty()
+                                        progress_bar.empty()
+                            else:
+                                st.write("") # 佔位
+                                
+                        # B. 刪除按鈕：物理刪除實體檔案與 ChromaDB 向量，並清理比較矩陣快取
+                        with col_d:
+                            if st.button("🗑️", key=f"btn_del_single_{pdf.name}", help=f"刪除此論文與向量: {pdf.name}"):
+                                try:
+                                    # 1. 刪除 ChromaDB 中的向量
+                                    if vector_manager:
+                                        vector_manager.delete_by_source(pdf.name)
+                                    # 2. 物理刪除檔案
+                                    if pdf.exists():
+                                        pdf.unlink()
+                                    # 3. 清理比較對應之 Session State 快取
+                                    if "comparison_data" in st.session_state and st.session_state.comparison_data:
+                                        st.session_state.comparison_data = [
+                                            item for item in st.session_state.comparison_data if item["pdf_file"] != pdf.name
+                                        ]
+                                        if pdf.name in st.session_state.comparison_pdf_set:
+                                            st.session_state.comparison_pdf_set.discard(pdf.name)
+                                            
+                                    st.success(f"🧹 已成功刪除 `{pdf.name}` 及其向量資料！")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ 刪除失敗: {e}")
+            else:
+                st.info("📂 目前文獻庫中無 PDF 檔案，請在上方上傳。")
+                    
+        with col_engine:
+            st.markdown("#### ⚡ 向量引擎控制")
+            
+            # 檢查是否有巨型 PDF 論文/書籍 (單篇大於 50 頁)
+            has_large_pdf = False
+            large_pdf_names = []
+            for pdf_path in existing_pdfs:
+                try:
+                    import fitz
+                    doc = fitz.open(pdf_path)
+                    if len(doc) > 50:
+                        has_large_pdf = True
+                        large_pdf_names.append(pdf_path.name)
+                    doc.close()
+                except Exception:
+                    pass
+                    
+            if has_large_pdf:
+                st.warning(
+                    f"💡 **偵測到巨型書籍/文獻**：\n"
+                    f"文獻 {', '.join([f'`{n}`' for n in large_pdf_names])} 超過 50 頁。一鍵向量化整本巨著極易擊穿免費 API 配額。\n\n"
+                    f"**強烈建議**：使用左側文獻清單個別論文旁的 **「🔄」** 按鈕進行「單篇向量化」，以維持系統穩定。"
+                )
+            
+            # 向量化本地庫按鈕
+            if vector_manager:
+                st.markdown('<div class="vectorize-btn">', unsafe_allow_html=True)
+                if st.button("🔄 向量化本地文獻庫", key="btn_vectorize", use_container_width=True):
+                    if not existing_pdfs:
+                        st.warning("⚠️ 目前本地文獻目錄 `data/` 中沒有任何 PDF 檔案！請先在左側上傳論文。")
+                    else:
+                        progress_bar = global_progress_placeholder.progress(0)
+                        status_text = global_status_placeholder.empty()
+                        
+                        try:
+                            status_text.info("🧹 正在初始化乾淨的向量空間...")
+                            vector_manager.clear_database()
+                            progress_bar.progress(10)
+                            
+                            all_chunks = []
+                            total_files = len(existing_pdfs)
+                            
+                            for idx, pdf_path in enumerate(existing_pdfs, 1):
+                                status_text.info(f"📖 正在解析雙欄排版 ({idx}/{total_files}): `{pdf_path.name}`...")
+                                parser = DoubleColumnPDFParser(pdf_path)
+                                parsed_pages = parser.parse_pdf()
+                                
+                                status_text.info(f"✂️ 正在進行語意切塊 ({idx}/{total_files}): `{pdf_path.name}`...")
+                                splitter = AcademicTextSplitter(chunk_size=600, chunk_overlap=120)
+                                chunks = splitter.split_parsed_documents(parsed_pages)
+                                all_chunks.extend(chunks)
+                                
+                                progress_bar.progress(int(10 + (idx / total_files) * 50))
+                                
+                            if all_chunks:
+                                def all_callback(batch_num, total_batches, remaining_sec, status):
+                                    if status == "writing":
+                                        status_text.info(f"🚀 正在將第 **{batch_num}/{total_batches}** 批寫入向量庫，共 {len(all_chunks)} 個切塊...")
+                                        progress_bar.progress(int(60 + (batch_num - 1) / total_batches * 38))
+                                    elif status == "cooling":
+                                        status_text.warning(
+                                            f"⏳ **流量平滑防護中 (30K TPM 限流避坑)**...\n"
+                                            f"第 **{batch_num}/{total_batches}** 批寫入成功。安全冷卻倒數：**{remaining_sec}** 秒..."
+                                        )
+                                        progress_bar.progress(int(60 + batch_num / total_batches * 38))
+                                vector_manager.store_documents(all_chunks, progress_callback=all_callback)
+                                
+                                progress_bar.progress(100)
+                                global_status_placeholder.empty()
+                                global_progress_placeholder.empty()
+                                st.success(f"🎉 成功向量化 {total_files} 篇文獻，生成 {len(all_chunks)} 個語意切塊！")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ 未能產生有效的文本切塊！")
+                                
+                        except Exception as e:
+                            global_status_placeholder.empty()
+                            global_progress_placeholder.empty()
+                            st.error(f"❌ 向量化失敗: {e}")
+                            logger.error(f"向量化失敗: {e}")
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # 清空資料庫按鈕
+                st.markdown('<div class="clear-btn">', unsafe_allow_html=True)
+                if st.button("🗑️ 清空向量資料庫", key="btn_clear", use_container_width=True):
+                    try:
+                        vector_manager.clear_database()
+                        st.success("🧹 向量庫已清空！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"清空失敗: {e}")
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.error("❌ 向量庫未啟用，請在左側輸入有效的 API Key 以啟用服務。")
 
     # ==========================================
     # Tab 2: 語意相似度檢索 (Week 3 核心整合驗證)

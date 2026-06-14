@@ -41,7 +41,7 @@ class AcademicRAGGenerator:
                 model=self.model_name,
                 google_api_key=api_key,
                 temperature=self.temperature,
-                max_tokens=2048
+                max_output_tokens=4096
             )
             logger.info(f"成功初始化 ChatGoogleGenerativeAI，模型: {self.model_name} (Temp={self.temperature})")
         except Exception as e:

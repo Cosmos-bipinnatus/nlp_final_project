@@ -25,12 +25,12 @@ DOCS_DIR.mkdir(parents=True, exist_ok=True)
 VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 3. LLM 模型配置
-# 預設使用的 Chat LLM 模型
+# 預設使用的 Chat LLM 模型 (改回使用 gemini-2.5-flash 以在您的 Free Tier 專案中取得可用配額，並搭配平滑冷卻)
 MODEL_NAME: str = "gemini-2.5-flash"
 
 # 預設使用的 Embedding 向量模型
-# 註：已升級為 gemini-embedding-2 (models/gemini-embedding-2-preview)，輸出 3072 維語意向量
-EMBEDDING_MODEL: str = "models/gemini-embedding-2-preview"
+# 註：已正式升級為 Google 官方 GA 版的 gemini-embedding-2 (models/gemini-embedding-2)，輸出 3072 維的高品質語意向量
+EMBEDDING_MODEL: str = "models/gemini-embedding-2"
 
 # 4. RAG & 文本切塊配置
 # 每個文字切塊的最大字數（字元數）

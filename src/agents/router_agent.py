@@ -66,7 +66,7 @@ class AcademicRouterAgent:
                 model=self.model_name,
                 google_api_key=api_key,
                 temperature=0.1,  # 決策專用，越低越穩定
-                max_tokens=1024
+                max_output_tokens=4096
             )
             
             # 使用 LangChain Core 的 with_structured_output 綁定我們的 Pydantic schema
@@ -190,7 +190,17 @@ class AcademicRouterAgent:
             else:
                 logger.info("[RouterAgent] 決策選擇混合路由 (hybrid)，同時查詢本地與 ArXiv...")
                 local_output = self.local_tool.run(query, chat_history=chat_history)
+                
+                # 根本解決 429 限流：在 Local RAG 檢索與 ArXiv 查詢之間加入 2.0 秒冷卻
+                import time
+                logger.info("[RouterAgent] Local RAG 完成，冷卻 2.0 秒後啟動 ArXiv 搜尋...")
+                time.sleep(2.0)
+                
                 arxiv_output = self.arxiv_tool.run(decision.search_query)
+                
+                # 根本解決 429 限流：在發起最終學術融合 LLM 請求之前，主動加入 1.5 秒的微冷卻
+                logger.info("[RouterAgent] ArXiv 搜尋完成，冷卻 1.5 秒後啟動雙文獻融合生成...")
+                time.sleep(1.5)
                 
                 # 呼叫 Gemini LLM 進行學術級的內容融合
                 logger.info("[RouterAgent] 正在使用 Gemini 進行本地 RAG 與 ArXiv 線上論文答案的混合融合...")
@@ -212,8 +222,7 @@ class AcademicRouterAgent:
 請將上述兩部分的內容進行融合與交叉分析：
 1. 說明本地文獻的研究與線上最新進展的關聯性或技術演進脈絡。
 2. 點出兩者的技術差異、優勢與局限。
-3. 產出一篇邏輯連貫、結構嚴密的學術解答。
-4. 必須保留原本的所有引用標記（例如 `[論文A, p.4]` 或 `[1]`）。
+4. 為了使回答的閱讀體驗更乾淨與流暢，請在融合成的答案中『不要』包含任何像 [論文A, p.4] 或 [1] 的引用標籤或切片標記。
 """
                 messages = [
                     {"role": "system", "content": system_prompt},
