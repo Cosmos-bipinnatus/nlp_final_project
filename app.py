@@ -67,13 +67,13 @@ def init_vector_manager(api_key: str, embedding_model: str):
 def init_rag_generator(api_key: str, model_name: str):
     """快取初始化 RAG 生成器（Gemini 2.5-Flash LLM）"""
     os.environ["GEMINI_API_KEY"] = api_key
-    return AcademicRAGGenerator()
+    return AcademicRAGGenerator(model_name=model_name)
 
 @st.cache_resource
 def init_academic_agent(api_key: str, model_name: str):
     """快取初始化學術路由代理（Router Agent + Local/ArXiv 工具）"""
     os.environ["GEMINI_API_KEY"] = api_key
-    return AcademicRouterAgent(persist_directory=str(VECTORSTORE_DIR))
+    return AcademicRouterAgent(model_name=model_name, persist_directory=str(VECTORSTORE_DIR))
 
 @st.cache_resource
 def init_comparison_manager(api_key: str, model_name: str, _vector_manager=None):
@@ -664,7 +664,13 @@ with col_main:
                             response = academic_agent.route_and_execute(qa_query, chat_history=st.session_state.chat_history[:-1])
                             
                             # 整理 Thinking Process HTML
-                            route_zh = "本地文獻庫 (RAG)" if response["route"] == "local" else "外接 ArXiv 學術網 (API)"
+                            route_map = {
+                                "local": "本地文獻庫 (RAG)",
+                                "arxiv": "外接 ArXiv 學術網 (API)",
+                                "hybrid": "混合對照綜述 (Hybrid RAG)",
+                                "direct": "通用學術知識直答 (Direct Response)"
+                            }
+                            route_zh = route_map.get(response["route"], response["route"])
                             thinking_html = f"""
                             <div style="background: rgba(0, 0, 0, 0.25); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;">
                                 <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">🎯 路由分發通道：<b>{route_zh}</b></div>

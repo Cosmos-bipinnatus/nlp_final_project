@@ -21,13 +21,13 @@ class RouterDecision(BaseModel):
     路由代理的決策格式。
     Gemini 將嚴格遵守此欄位約束進行 JSON 輸出。
     """
-    chosen_route: Literal["local", "arxiv", "hybrid"] = Field(
+    chosen_route: Literal["local", "arxiv", "hybrid", "direct"] = Field(
         ..., 
-        description="決定將此提問路由分發至何處。若問及本地上傳文獻的細節，選 'local'；若問及外部技術或搜尋最新論文，選 'arxiv'；若提問需要同時對比本地已上傳文獻與外部最新論文（例如詢問兩者之差異、最新進展等），選 'hybrid'。"
+        description="決定將此提問路由分發至何處。若問及本地上傳文獻的細節，選 'local'；若問及外部技術或搜尋最新論文，選 'arxiv'；若提問需要同時對比本地已上傳文獻與外部最新論文，選 'hybrid'；若提問為一般學術概念定義、通用知識、基礎程式設計、或與已上傳論文無關之提問（例如『請用150字介紹BERT』、『機器學習的定義是什麼』），選 'direct'。"
     )
     search_query: str = Field(
         ..., 
-        description="為該檢索庫優化後的英文學術檢索關鍵字（例如：'Multi-Head Attention mechanism' 或 'diffusion model 3D generation'）"
+        description="為該檢索庫優化後的英文學術檢索關鍵字（例如：'Multi-Head Attention mechanism' 或 'diffusion model 3D generation'）。若為 direct 模式，此欄位可直接填寫該提問的學術核心專有名詞。"
     )
     rationale: str = Field(
         ..., 
@@ -95,7 +95,7 @@ class AcademicRouterAgent:
         
         system_prompt = (
             "你是一位資深的 AI / NLP 領域學術導師與智能路由引擎。\n"
-            "你的唯一任務是分析學生提出的問題，並決定該問題應該路由分發至「本地文獻庫 (local)」、「外接 ArXiv 學術庫 (arxiv)」還是「兩者混合 (hybrid)」。\n\n"
+            "你的唯一任務是分析學生提出的問題，並決定該問題應該路由分發至「本地文獻庫 (local)」、「外接 ArXiv 學術庫 (arxiv)」、「兩者混合 (hybrid)」還是「通用學術知識直答 (direct)」。\n\n"
             "【路由分發判定準則】\n"
             "1. 本地文獻庫 (local)：\n"
             "   - 提問涉及特定的細節內容，通常已經包含在學生已上傳的論文中（例如：Transformer、Attention 機制、自注意力、Multi-Head Attention 運作方式、或者特定的數據與研究方法）。\n"
@@ -105,9 +105,12 @@ class AcademicRouterAgent:
             "   - 提問涉及本地未上傳之新領域或新話題（例如：Diffusion Model、LLM Agents、RLHF、DPO 等廣泛、非 Attention 原版論文範疇之學術主題）。\n"
             "   - 提問明確包含 '搜尋'、'查找最新'、'ArXiv 論文' 等字眼。\n"
             "3. 兩者混合 (hybrid)：\n"
-            "   - 提問需要『將本地上傳文獻』與『外部最新進展』進行對照比較（例如：'我上傳的 Attention 論文與 2025 年最新 Attention 改進有什麼不同？'、'將本地文獻提出的方法與最新線上研究做對照' 等）。\n\n"
+            "   - 提問需要『將本地上傳文獻』與『外部最新進展』進行對照比較（例如：'我上傳的 Attention 論文與 2025 年最新 Attention 改進有什麼不同？'、'將本地文獻提出的方法與最新線上研究做對照' 等）。\n"
+            "4. 通用學術知識直答 (direct)：\n"
+            "   - 提問屬於通用學術概念定義、經典的已定型知識、基礎程式設計、或完全不涉及本地論文具體實驗或 ArXiv 最新論文檢索的通用問題（例如：『請使用150字介紹BERT』、『什麼是機器學習』、『如何用 Python 寫一個簡單的 Transformer Layer』）。\n"
+            "   - 此類問題直接由 LLM 的內建知識庫回答效果最好，無需任何 RAG 或線上搜尋，以免強行檢索產生文獻幻覺。\n\n"
             "【英文關鍵字提取準則】\n"
-            "無論選擇哪個路由，請為該提問提取並優化出 2~4 個關鍵字組合成的【英文學術檢索關鍵字】(search_query)，這對於後續在資料庫或 ArXiv 搜尋非常重要。切勿使用中文作為檢索字，必須轉化為英文學術專有名詞（例如：'Multi-head attention formulas' 或 'latest LLM evaluation frameworks'）。\n\n"
+            "無論選擇哪個路由，請為該提問提取並優化出 2~4 個關鍵字組合成的【英文學術檢索關鍵字】(search_query)，這對於後續在資料庫或 ArXiv 搜尋非常重要。切勿使用中文作為檢索字，必須轉化為英文學術專有名詞（例如：'Multi-head attention formulas' 或 'latest LLM evaluation frameworks'）。若為 direct 模式，此欄位可以直接填寫提問相關的英文學術名詞（例如：'BERT overview'）。\n\n"
             "請嚴格回傳符合 RouterDecision 格式的結構化 JSON。"
         )
         
@@ -186,6 +189,28 @@ class AcademicRouterAgent:
                     "answer": tool_output["answer"],
                     "chunks": [],
                     "papers": tool_output["papers"]  # 用於前端論文卡片渲染
+                }
+            elif decision.chosen_route == "direct":
+                logger.info("[RouterAgent] 決策選擇通用學術知識直答，直接呼叫 LLM...")
+                # 呼叫 Gemini LLM 進行通用回答，不進行額外文獻檢索
+                system_prompt = (
+                    "你是一位資深的 AI / NLP 領域學術導師與學術顧問。\n"
+                    "你的任務是直接根據你的專業知識，為學生提出的通用概念、經典理論或基礎技術問題，進行精確且具有學術深度的回答。\n"
+                    "請嚴格使用「中華民國繁體中文（臺灣地區學術用語）」進行撰寫。\n"
+                )
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": query}
+                ]
+                from src.utils.retry_handler import retry_on_429
+                response = retry_on_429(self.llm.invoke, messages)
+                return {
+                    "route": "direct",
+                    "search_query": decision.search_query,
+                    "rationale": decision.rationale,
+                    "answer": response.content,
+                    "chunks": [],
+                    "papers": []
                 }
             else:
                 logger.info("[RouterAgent] 決策選擇混合路由 (hybrid)，同時查詢本地與 ArXiv...")

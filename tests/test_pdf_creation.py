@@ -24,6 +24,15 @@ def test_pdf_generation():
 ## 2. 🔬 核心方法
 本系統採用 Google Gemini Embeddings 搭配 ChromaDB 進行語意檢索，測試中文與英文折行狀況。
 We test how English words like Attention and Transformer wrap alongside Chinese characters.
+
+| 特徵 | 文獻 #1 (MMBERT) | 文獻 #2 (BERT/RoBERTa) |
+| :--- | :--- | :--- |
+| 主要模態 | 多模態 (文本、語音、視覺) | 單模態 (文本) |
+| 核心架構創新 | MoE架構、三階段漸進式訓練、輕量級路由模組 | 標準Transformer模型微調 |
+| 魯棒性策略 | MoE動態專家激活、跨模態整合以對抗偽裝擾動 | 透過平衡資料集、強健的預訓練模型提升韌性 |
+| 資料處理重點 | 多模態對齊、跨模態表示學習 | 資料集平衡、精細化文本預處理、社會語言學特徵考量 |
+| 模型比較 | 內部MoE專家動態調整 | BERT與RoBERTa的直接性能比較 |
+| 計算效率考量 | MoE架構提升計算效率與靈活性 (稀疏激活) | 透過選擇更優模型 (RoBERTa) 提升效能 |
 """
     try:
         pdf_bytes = generate_review_pdf(test_report)

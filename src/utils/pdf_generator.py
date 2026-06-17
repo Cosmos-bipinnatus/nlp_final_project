@@ -269,6 +269,144 @@ def add_review_page(doc: fitz.Document, width: float, height: float, fontname: s
     page.draw_rect(fitz.Rect(margin - 15, margin, margin - 10, height - margin), color=(0.02, 0.45, 0.55), fill=(0.02, 0.45, 0.55))
     return page
 
+def is_separator_row(row_str: str) -> bool:
+    """
+    檢查該行是否為 Markdown 表格的分隔線列（例如 | :--- | :--- | 或 | --- | --- |）
+    """
+    row_str = row_str.strip()
+    if not row_str.startswith("|") or not row_str.endswith("|"):
+        return False
+    # 分隔線列應該只包含 |、-、:、空格
+    chars = set(row_str.replace(" ", "").replace("-", "").replace(":", "").replace("|", ""))
+    return len(chars) == 0
+
+def render_markdown_table(doc: fitz.Document, page: fitz.Page, table_lines: List[str], 
+                          fontname: str, font_buffer: bytes, margin: float, 
+                          page_w: float, page_h: float, y: float) -> tuple[fitz.Page, float]:
+    """
+    將 Markdown 表格解析並在 PDF 頁面中繪製出漂亮的框線表格，支援折行與跨頁分頁。
+    """
+    rows = []
+    for line in table_lines:
+        # 以 | 分割，移除首尾空字串
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) >= 2:
+            rows.append(parts[1:-1])
+            
+    if len(rows) < 2:
+        return page, y
+        
+    headers = rows[0]
+    # 排除 rows[1] (分隔線列)
+    data_rows = rows[2:] if len(rows) > 2 else []
+    
+    num_cols = len(headers)
+    if num_cols == 0:
+        return page, y
+        
+    usable_w = page_w - 2 * margin
+    
+    # 決定欄位寬度分配
+    # 第一欄（通常為「特徵」或「指標」）分配較小比例（22%），其餘平分
+    if num_cols == 1:
+        col_widths = [usable_w]
+        other_col_w = usable_w
+    else:
+        first_col_w = usable_w * 0.22
+        other_col_w = (usable_w - first_col_w) / (num_cols - 1)
+        col_widths = [first_col_w] + [other_col_w] * (num_cols - 1)
+        
+    table_font_size = 8.5
+    cell_padding_x = 6
+    cell_padding_y = 6
+    table_line_h = 12
+    
+    def get_row_cells_and_height(row_cells):
+        wrapped_cells = []
+        max_lines = 1
+        for col_idx, cell_text in enumerate(row_cells):
+            col_w = col_widths[col_idx] if col_idx < len(col_widths) else other_col_w
+            # 計算該欄寬度能容納的視覺字元長度
+            max_vis_w = int((col_w - 2 * cell_padding_x) / (table_font_size * 0.5))
+            if max_vis_w < 5:
+                max_vis_w = 5
+            # 使用 pdf_generator 中已有的 wrap_text 進行中文/英文折行
+            wrapped = wrap_text(cell_text, max_vis_w)
+            wrapped_cells.append(wrapped)
+            if len(wrapped) > max_lines:
+                max_lines = len(wrapped)
+        row_height = max_lines * table_line_h + 2 * cell_padding_y
+        return wrapped_cells, row_height
+        
+    # 計算表頭高度
+    header_wrapped, header_h = get_row_cells_and_height(headers)
+    
+    def draw_row(tgt_page, y_pos, wrapped_cells, row_h, is_header=False):
+        # 繪製背景色（表頭用淡藍色背景）
+        if is_header:
+            bg_color = (0.90, 0.94, 0.96)
+            tgt_page.draw_rect(fitz.Rect(margin, y_pos, page_w - margin, y_pos + row_h), color=bg_color, fill=bg_color)
+            
+        # 逐格繪製文字
+        x_pos = margin
+        for col_idx, cell_lines in enumerate(wrapped_cells):
+            col_w = col_widths[col_idx] if col_idx < len(col_widths) else other_col_w
+            
+            line_y = y_pos + cell_padding_y + table_font_size - 1
+            for line_text in cell_lines:
+                tgt_page.insert_text(
+                    (x_pos + cell_padding_x, line_y),
+                    line_text,
+                    fontsize=table_font_size,
+                    fontname=fontname,
+                    color=(0.02, 0.35, 0.45) if is_header else (0.2, 0.2, 0.2)
+                )
+                line_y += table_line_h
+            x_pos += col_w
+            
+        # 繪製單列的水平格線
+        tgt_page.draw_line(fitz.Point(margin, y_pos), fitz.Point(page_w - margin, y_pos), color=(0.8, 0.8, 0.8), width=0.5)
+        tgt_page.draw_line(fitz.Point(margin, y_pos + row_h), fitz.Point(page_w - margin, y_pos + row_h), color=(0.8, 0.8, 0.8), width=0.5)
+        
+        # 繪製垂直格線
+        x_pos = margin
+        tgt_page.draw_line(fitz.Point(x_pos, y_pos), fitz.Point(x_pos, y_pos + row_h), color=(0.8, 0.8, 0.8), width=0.5)
+        for col_w in col_widths:
+            x_pos += col_w
+            tgt_page.draw_line(fitz.Point(x_pos, y_pos), fitz.Point(x_pos, y_pos + row_h), color=(0.8, 0.8, 0.8), width=0.5)
+            
+    # 檢查表頭是否需要換頁
+    if y + header_h > page_h - margin - 20:
+        page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
+        y = margin
+        
+    # 繪製表頭
+    draw_row(page, y, header_wrapped, header_h, is_header=True)
+    y += header_h
+    
+    # 繪製資料列
+    for row_cells in data_rows:
+        # 長度不足則補齊
+        if len(row_cells) < num_cols:
+            row_cells += [""] * (num_cols - len(row_cells))
+        elif len(row_cells) > num_cols:
+            row_cells = row_cells[:num_cols]
+            
+        wrapped_cells, row_h = get_row_cells_and_height(row_cells)
+        
+        # 換頁檢測
+        if y + row_h > page_h - margin - 20:
+            page = add_review_page(doc, page_w, page_h, fontname, font_buffer, margin)
+            y = margin
+            # 換頁後重新繪製表頭，確保閱讀流暢
+            draw_row(page, y, header_wrapped, header_h, is_header=True)
+            y += header_h
+            
+        draw_row(page, y, wrapped_cells, row_h, is_header=False)
+        y += row_h
+        
+    return page, y + 10
+
 def generate_review_pdf(report_text: str) -> bytes:
     """
     將 Markdown 格式的文獻回顧綜述報告轉換為排版精美的 PDF 二進位資料。
@@ -293,10 +431,26 @@ def generate_review_pdf(report_text: str) -> bytes:
     y = margin
     
     lines = report_text.split("\n")
-    for line in lines:
+    idx = 0
+    num_lines = len(lines)
+    
+    while idx < num_lines:
+        line = lines[idx]
         line_str = line.strip()
+        
+        # 偵測是否為 Markdown 表格
+        if line_str.startswith("|") and idx + 1 < num_lines and is_separator_row(lines[idx+1]):
+            table_lines = []
+            while idx < num_lines and lines[idx].strip().startswith("|"):
+                table_lines.append(lines[idx])
+                idx += 1
+            # 繪製表格並更新 page 與 y
+            page, y = render_markdown_table(doc, page, table_lines, fontname, font_buffer, margin, page_w, page_h, y)
+            continue
+            
         if not line_str:
             y += 8
+            idx += 1
             continue
             
         # 處理 Markdown 標題與格式
@@ -365,6 +519,8 @@ def generate_review_pdf(report_text: str) -> bytes:
                 page.insert_text((margin + indent, y), w_line, fontsize=body_size, fontname=fontname, color=(0.2, 0.2, 0.2))
                 y += line_h
                 
+        idx += 1
+        
     # 最後統一在每頁加上頁碼與裝飾線
     total_pages = len(doc)
     for p_idx in range(total_pages):

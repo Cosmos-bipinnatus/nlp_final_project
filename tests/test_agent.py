@@ -68,8 +68,32 @@ def test_agent_pipeline():
         assert arxiv_response["route"] == "arxiv", "❌ 測試案例二路由錯誤，應該路由至 'arxiv'！"
         print("\n✅ 測試案例二 (外部 ArXiv) 驗證成功！")
         
+        # ---------------------------------------------
+        # 測試案例三：通用學術知識直答 (Direct Response) 測試
+        # ---------------------------------------------
         print("\n" + "="*80)
-        print("🎉 [Success] All Week 5 Router Agent & Tools Pipeline Integration Tests Completed Successfully!")
+        print("【測試案例三：通用學術知識直答】")
+        print("="*80)
+        direct_query = "Please introduce BERT in about 150 words."
+        print(f"Student Query: '{direct_query}'")
+        
+        print("\n[Agent Running] Analyzing and executing...")
+        direct_response = agent.route_and_execute(direct_query)
+        
+        print("\n--- [Agent Decision Process] ---")
+        print(f"Chosen Route: {direct_response['route'].upper()}")
+        print(f"Optimized Query: '{direct_response['search_query']}'")
+        print(f"Rationale: {direct_response['rationale']}")
+        
+        print("\n--- [Answer Output] ---")
+        print(direct_response["answer"])
+        
+        # 驗證路由是否正確
+        assert direct_response["route"] == "direct", "❌ 測試案例三路由錯誤，應該路由至 'direct'！"
+        print("\n✅ 測試案例三 (通用直答) 驗證成功！")
+        
+        print("\n" + "="*80)
+        print("🎉 [Success] All Router Agent & Tools Pipeline Integration Tests Completed Successfully!")
         print("="*80)
         
     except Exception as e:

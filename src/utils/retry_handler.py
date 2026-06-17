@@ -13,9 +13,25 @@ except ImportError:
 # 設定日誌
 logger = get_logger(__name__)
 
+def set_model_on_runnable(runnable: Any, new_model_name: str) -> bool:
+    """
+    遞迴尋找並將 LangChain Runnable (如 RunnableBinding, ChatGoogleGenerativeAI) 中的底層模型名稱修改為 new_model_name。
+    """
+    updated = False
+    if hasattr(runnable, "model"):
+        runnable.model = new_model_name
+        updated = True
+    if hasattr(runnable, "model_name"):
+        runnable.model_name = new_model_name
+        updated = True
+    if hasattr(runnable, "bound"):
+        if set_model_on_runnable(runnable.bound, new_model_name):
+            updated = True
+    return updated
+
 def retry_on_429(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """
-    對 Gemini API 429 / RESOURCE_EXHAUSTED 速率限制錯誤進行重試的包裝函式。
+    對 Gemini API 429 (限流) 或 503 (暫時不可用/超載) 等暫時性錯誤進行自動重試與模型自動降級自癒。
     採用指數退避 (Exponential Backoff) 機制，最高重試 5 次，並在 Streamlit 前端顯示倒數提示。
     
     Args:
@@ -34,25 +50,47 @@ def retry_on_429(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
             return func(*args, **kwargs)
         except Exception as e:
             err_msg = str(e)
-            # 判斷是否為 429 限流或資源耗盡錯誤
+            # 判斷是否為 429 限流/資源耗盡，或 503 伺服器超載暫時不可用
             is_429 = "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower()
+            is_503 = "503" in err_msg or "UNAVAILABLE" in err_msg or "overloaded" in err_msg.lower() or "not found" in err_msg.lower()
             
-            if is_429 and attempt < max_retries - 1:
+            # 自動自癒：若是 503 暫時不可用，或模型找不到 (例如帳號不支援 3.5)，進行自動降級
+            if is_503 and attempt >= 0 and hasattr(func, "__self__"):
+                obj = func.__self__
+                current_model = None
+                target = obj
+                while target is not None:
+                    current_model = getattr(target, "model", None) or getattr(target, "model_name", None)
+                    if current_model:
+                        break
+                    target = getattr(target, "bound", None)
+                    
+                if current_model and "gemini-3.5-flash" in current_model:
+                    fallback_model = "gemini-2.5-flash"
+                    if set_model_on_runnable(obj, fallback_model):
+                        logger.warning(f"⚠️ [自動降級] 成功將 {current_model} 降級為穩定版 {fallback_model}！")
+                        if HAS_STREAMLIT:
+                            try:
+                                st.warning(f"⚠️ **Gemini 3.5 Flash 服務超載或不可用 (Error 503)**，已自動降級為穩定版 `{fallback_model}` 以確保問答與生成能正常運作。")
+                            except Exception:
+                                pass
+            
+            if (is_429 or is_503) and attempt < max_retries - 1:
                 # 指數退避計算：2, 4, 8, 16... 秒
                 delay = base_delay * (2 ** attempt)
+                err_type_zh = "API 限流" if is_429 else "伺服器繁忙"
                 logger.warning(
-                    f"[API 限流] 偵測到 429/RESOURCE_EXHAUSTED，"
+                    f"[{err_type_zh}] 偵測到暫時性錯誤，"
                     f"將在 {delay:.1f} 秒後進行第 {attempt + 1}/{max_retries} 次重試。錯誤訊息: {err_msg}"
                 )
                 
-                # 如果在 Streamlit 環境下，在 UI 渲染出警告，避免評審與同學慌張
+                # 如果在 Streamlit 環境下，在 UI 渲染出警告，避免使用者慌張
                 if HAS_STREAMLIT:
                     try:
                         warning_msg = (
-                            f"⏳ **Gemini API 速率限制中...** "
+                            f"⏳ **Gemini API {err_type_zh} (Error {503 if is_503 else 429})...** "
                             f"系統將在 {delay:.1f} 秒後進行第 {attempt + 1}/{max_retries} 次自動重試，請稍候。"
                         )
-                        # 避開側邊欄窄欄位被擠壓的問題：如果是由側邊欄動作觸發，將警告推送到大容器側邊欄底部
                         if st.session_state.get("sidebar_active", False):
                             st.sidebar.warning(warning_msg)
                         else:
@@ -62,6 +100,6 @@ def retry_on_429(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
                 
                 time.sleep(delay)
             else:
-                # 非 429 錯誤，或是已達到最大重試次數，直接拋出例外
-                logger.error(f"[API 失敗] 已達重試上限或遇到非 429 錯誤: {e}")
+                # 非暫時性錯誤，或已達重試上限
+                logger.error(f"[API 失敗] 已達重試上限或遇到非暫時性錯誤: {e}")
                 raise e

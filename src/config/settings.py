@@ -25,7 +25,7 @@ DOCS_DIR.mkdir(parents=True, exist_ok=True)
 VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 3. LLM 模型配置
-# 預設使用的 Chat LLM 模型 (改回使用 gemini-2.5-flash 以在您的 Free Tier 專案中取得可用配額，並搭配平滑冷卻)
+# 預設使用的 Chat LLM 模型 (恢復為穩定且對免費帳戶可用的 gemini-2.5-flash)
 MODEL_NAME: str = "gemini-2.5-flash"
 
 # 預設使用的 Embedding 向量模型
